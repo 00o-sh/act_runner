@@ -16,4 +16,6 @@ type Client interface {
 	runnerv1connect.RunnerServiceClient
 	Address() string
 	Insecure() bool
+	Clientcert() string
+	Clientkey() string
 }

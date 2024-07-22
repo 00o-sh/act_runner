@@ -129,6 +129,8 @@ func runDaemon(ctx context.Context, daemArgs *daemonArgs, configFile *string) fu
 		cli := client.New(
 			reg.Address,
 			cfg.Runner.Insecure,
+			cfg.Runner.Clientcert,
+			cfg.Runner.Clientkey,
 			reg.UUID,
 			reg.Token,
 			ver.Version(),

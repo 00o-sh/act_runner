@@ -37,6 +37,42 @@ func (_m *Client) Address() string {
 	return r0
 }
 
+// Clientcert provides a mock function with given fields:
+func (_m *Client) Clientcert() string {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Clientcert")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func() string); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// Clientkey provides a mock function with given fields:
+func (_m *Client) Clientkey() string {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Clientkey")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func() string); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
 // Declare provides a mock function with given fields: _a0, _a1
 func (_m *Client) Declare(_a0 context.Context, _a1 *connect.Request[runnerv1.DeclareRequest]) (*connect.Response[runnerv1.DeclareResponse], error) {
 	ret := _m.Called(_a0, _a1)

@@ -28,6 +28,10 @@ runner:
   shutdown_timeout: 0s
   # Whether skip verifying the TLS certificate of the Gitea instance.
   insecure: false
+  # Specifies the path to the client certificate for Gitea autentication.
+  clientcert: ""
+  # Specifies the path to the client key for Gitea autentication.
+  clientkey: ""
   # The timeout for fetching the job from the Gitea instance.
   fetch_timeout: 5s
   # The interval for fetching the job from the Gitea instance.

@@ -12,15 +12,30 @@ import (
 	"code.gitea.io/actions-proto-go/ping/v1/pingv1connect"
 	"code.gitea.io/actions-proto-go/runner/v1/runnerv1connect"
 	"connectrpc.com/connect"
+	log "github.com/sirupsen/logrus"
 )
 
-func getHTTPClient(endpoint string, insecure bool) *http.Client {
+func getHTTPClient(endpoint string, insecure bool, clientcert string, clientkey string) *http.Client {
+	var cfg tls.Config
 	if strings.HasPrefix(endpoint, "https://") && insecure {
+		cfg.InsecureSkipVerify = true
+	}
+
+	if len(strings.TrimSpace(clientcert)) > 0 && len(strings.TrimSpace(clientkey)) > 0 {
+		// Load client certificate and private key
+		clientCert, err := tls.LoadX509KeyPair(clientcert, clientkey)
+		if err != nil {
+			log.WithError(err).
+				Errorln("Error loading client certificate")
+		} else {
+			cfg.Certificates = []tls.Certificate{clientCert}
+		}
+	}
+
+	if cfg.InsecureSkipVerify || len(cfg.Certificates) > 0 {
 		return &http.Client{
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
+				TLSClientConfig: &cfg,
 			},
 		}
 	}
@@ -28,7 +43,7 @@ func getHTTPClient(endpoint string, insecure bool) *http.Client {
 }
 
 // New returns a new runner client.
-func New(endpoint string, insecure bool, uuid, token, version string, opts ...connect.ClientOption) *HTTPClient {
+func New(endpoint string, insecure bool, clientcert string, clientkey string, uuid, token, version string, opts ...connect.ClientOption) *HTTPClient {
 	baseURL := strings.TrimRight(endpoint, "/") + "/api/actions"
 
 	opts = append(opts, connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
@@ -49,17 +64,19 @@ func New(endpoint string, insecure bool, uuid, token, version string, opts ...co
 
 	return &HTTPClient{
 		PingServiceClient: pingv1connect.NewPingServiceClient(
-			getHTTPClient(endpoint, insecure),
+			getHTTPClient(endpoint, insecure, clientcert, clientkey),
 			baseURL,
 			opts...,
 		),
 		RunnerServiceClient: runnerv1connect.NewRunnerServiceClient(
-			getHTTPClient(endpoint, insecure),
+			getHTTPClient(endpoint, insecure, clientcert, clientkey),
 			baseURL,
 			opts...,
 		),
-		endpoint: endpoint,
-		insecure: insecure,
+		endpoint:   endpoint,
+		insecure:   insecure,
+		clientcert: clientcert,
+		clientkey:  clientkey,
 	}
 }
 
@@ -71,12 +88,22 @@ func (c *HTTPClient) Insecure() bool {
 	return c.insecure
 }
 
+func (c *HTTPClient) Clientcert() string {
+	return c.clientcert
+}
+
+func (c *HTTPClient) Clientkey() string {
+	return c.clientkey
+}
+
 var _ Client = (*HTTPClient)(nil)
 
 // An HTTPClient manages communication with the runner API.
 type HTTPClient struct {
 	pingv1connect.PingServiceClient
 	runnerv1connect.RunnerServiceClient
-	endpoint string
-	insecure bool
+	endpoint   string
+	insecure   bool
+	clientcert string
+	clientkey  string
 }
