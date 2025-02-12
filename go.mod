@@ -99,3 +99,6 @@ require (
 )
 
 replace github.com/nektos/act => gitea.com/gitea/act v0.261.3
+
+// TODO remove before merge
+replace code.gitea.io/actions-proto-go v0.4.0 => gitea.com/ChristopherHX/actions-proto-go v0.4.1-0.20250212113254-35d54b458c4a

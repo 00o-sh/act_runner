@@ -75,6 +75,7 @@ type registerArgs struct {
 	Token         string
 	RunnerName    string
 	Labels        string
+	Ephemeral     bool
 }
 
 type registerStage int8
@@ -101,6 +102,7 @@ type registerInputs struct {
 	Token        string
 	RunnerName   string
 	Labels       []string
+	Ephemeral    bool
 }
 
 func (r *registerInputs) validate() error {
@@ -321,10 +323,11 @@ func doRegister(ctx context.Context, cfg *config.Config, inputs *registerInputs)
 	}
 
 	reg := &config.Registration{
-		Name:    inputs.RunnerName,
-		Token:   inputs.Token,
-		Address: inputs.InstanceAddr,
-		Labels:  inputs.Labels,
+		Name:      inputs.RunnerName,
+		Token:     inputs.Token,
+		Address:   inputs.InstanceAddr,
+		Labels:    inputs.Labels,
+		Ephemeral: inputs.Ephemeral,
 	}
 
 	ls := make([]string, len(reg.Labels))
@@ -339,6 +342,7 @@ func doRegister(ctx context.Context, cfg *config.Config, inputs *registerInputs)
 		Version:     ver.Version(),
 		AgentLabels: ls, // Could be removed after Gitea 1.20
 		Labels:      ls,
+		Ephemeral:   inputs.Ephemeral,
 	}))
 	if err != nil {
 		log.WithError(err).Error("poller: cannot register new runner")
@@ -349,6 +353,11 @@ func doRegister(ctx context.Context, cfg *config.Config, inputs *registerInputs)
 	reg.UUID = resp.Msg.Runner.Uuid
 	reg.Name = resp.Msg.Runner.Name
 	reg.Token = resp.Msg.Runner.Token
+
+	if inputs.Ephemeral != resp.Msg.Runner.Ephemeral {
+		// TODO we cannot remove the configuration via runner api, if we return an error here we just fill the database
+		log.Error("poller: cannot register new runner as ephemeral upgrade Gitea to gain security, run-once will be used automatically")
+	}
 
 	if err := config.SaveRegistration(cfg.Runner.File, reg); err != nil {
 		return fmt.Errorf("failed to save runner config: %w", err)
