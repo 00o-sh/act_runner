@@ -170,9 +170,8 @@ func initLogging(cfg *config.Config) {
 		return funcname, filename
 	}
 
-	var format log.Formatter
 	isTerm := isatty.IsTerminal(os.Stdout.Fd())
-	format = &log.TextFormatter{
+	format := &log.TextFormatter{
 		DisableColors:    !isTerm,
 		FullTimestamp:    true,
 		CallerPrettyfier: callPrettyfier,
