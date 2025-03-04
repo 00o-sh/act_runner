@@ -37,7 +37,7 @@ func compatibleWithOldEnvs(fileUsed bool, cfg *Config) {
 		}
 	}
 	if v, ok := handleEnv("GITEA_RUNNER_CAPACITY"); ok {
-		if i, _ := strconv.Atoi(v); i > 0 {
+		if i, _ := strconv.Atoi(v); i >= 0 {
 			cfg.Runner.Capacity = i
 		}
 	}

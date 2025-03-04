@@ -105,7 +105,7 @@ func LoadDefault(file string) (*Config, error) {
 	if cfg.Runner.File == "" {
 		cfg.Runner.File = ".runner"
 	}
-	if cfg.Runner.Capacity <= 0 {
+	if cfg.Runner.Capacity < 0 {
 		cfg.Runner.Capacity = 1
 	}
 	if cfg.Runner.Timeout <= 0 {
