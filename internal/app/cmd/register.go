@@ -93,6 +93,7 @@ const (
 
 var defaultLabels = []string{
 	"ubuntu-latest:docker://docker.gitea.com/runner-images:ubuntu-latest",
+    "ubuntu-24.04:docker://docker.gitea.com/runner-images:ubuntu-24.04",
 	"ubuntu-22.04:docker://docker.gitea.com/runner-images:ubuntu-22.04",
 	"ubuntu-20.04:docker://docker.gitea.com/runner-images:ubuntu-20.04",
 }
