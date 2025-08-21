@@ -4,7 +4,7 @@
 FROM golang:1.24-alpine AS builder
 
 # Do not remove `git` here, it is required for getting runner version when executing `make build`
-RUN apk add --no-cache make git
+RUN apk add --no-cache make git tzdata
 
 ARG GOPROXY
 ENV GOPROXY=${GOPROXY:-}
@@ -14,12 +14,12 @@ WORKDIR /opt/src/act_runner
 
 RUN make clean && make build
 
-### DIND STAGE
+### DIND VARIANT
 #
 #
 FROM docker:dind AS dind
 
-RUN apk add --no-cache s6 bash git
+RUN apk add --no-cache s6 bash git tzdata
 
 COPY --from=builder /opt/src/act_runner/act_runner /usr/local/bin/act_runner
 COPY scripts/run.sh /usr/local/bin/run.sh
@@ -29,13 +29,13 @@ VOLUME /data
 
 ENTRYPOINT ["s6-svscan","/etc/s6"]
 
-### DIND-ROOTLESS STAGE
+### DIND-ROOTLESS VARIANT
 #
 #
 FROM docker:dind-rootless AS dind-rootless
 
 USER root
-RUN apk add --no-cache s6 bash git
+RUN apk add --no-cache s6 bash git tzdata
 
 COPY --from=builder /opt/src/act_runner/act_runner /usr/local/bin/act_runner
 COPY scripts/run.sh /usr/local/bin/run.sh
@@ -50,7 +50,7 @@ ENV DOCKER_HOST=unix:///run/user/1000/docker.sock
 USER rootless
 ENTRYPOINT ["s6-svscan","/etc/s6"]
 
-### FINAL STAGE
+### BASIC VARIANT
 #
 #
 FROM alpine AS basic
