@@ -4,7 +4,7 @@
 FROM golang:1.24-alpine AS builder
 
 # Do not remove `git` here, it is required for getting runner version when executing `make build`
-RUN apk add --no-cache make git tzdata
+RUN apk add --no-cache make git
 
 ARG GOPROXY
 ENV GOPROXY=${GOPROXY:-}
