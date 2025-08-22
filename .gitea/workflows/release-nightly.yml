@@ -10,7 +10,7 @@ on:
       - '*'
 
 env:
-  DOCKER_ORG: dselen
+  DOCKER_ORG: gitea
   DOCKER_LATEST: nightly
 
 jobs:
