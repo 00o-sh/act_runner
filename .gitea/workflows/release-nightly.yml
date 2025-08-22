@@ -67,6 +67,9 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Echo the tag
+        run: ${{ env.DOCKER_ORG }}/act_runner:nightly${{ matrix.variant.tag_suffix }}
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
