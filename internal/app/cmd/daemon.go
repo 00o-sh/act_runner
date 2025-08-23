@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/mattn/go-isatty"
@@ -64,7 +66,35 @@ func runDaemon(ctx context.Context, daemArgs *daemonArgs, configFile *string) fu
 			log.Warn("no labels configured, runner may not be able to pick up jobs")
 		}
 
-		if ls.RequireDocker() {
+		if timeout := cfg.Container.DockerTimeout; timeout > 0 {
+			dockerSocketPath, err := getDockerSocketPath(cfg.Container.DockerHost)
+			if err != nil {
+				return err
+			}
+			tctx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+			var keepRunning bool
+			for keepRunning {
+				if err = envcheck.CheckIfDockerRunning(tctx, dockerSocketPath); errors.Is(err, context.Canceled) {
+					log.Infof("Docker wait timeout of %s expired", timeout.String())
+					keepRunning = false
+					break
+				} else if err != nil {
+					log.Errorf("Docker connection failed: %s", err.Error())
+				} else {
+					log.Infof("Docker is ready")
+					break
+				}
+				select {
+				case <-time.After(time.Second):
+				case <-tctx.Done():
+					log.Infof("Docker wait timeout of %s expired", timeout.String())
+					keepRunning = false
+				}
+			}
+		}
+
+		if ls.RequireDocker() || cfg.Container.RequireDocker {
 			dockerSocketPath, err := getDockerSocketPath(cfg.Container.DockerHost)
 			if err != nil {
 				return err
