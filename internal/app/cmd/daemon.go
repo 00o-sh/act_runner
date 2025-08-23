@@ -67,15 +67,14 @@ func runDaemon(ctx context.Context, daemArgs *daemonArgs, configFile *string) fu
 		}
 
 		if timeout := cfg.Container.DockerTimeout; timeout > 0 {
-			dockerSocketPath, err := getDockerSocketPath(cfg.Container.DockerHost)
-			if err != nil {
-				return err
-			}
 			tctx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
-			var keepRunning bool
+			keepRunning := true
 			for keepRunning {
-				if err = envcheck.CheckIfDockerRunning(tctx, dockerSocketPath); errors.Is(err, context.Canceled) {
+				dockerSocketPath, err := getDockerSocketPath(cfg.Container.DockerHost)
+				if err != nil {
+					log.Errorf("Failed to get socket path: %s", err.Error())
+				} else if err = envcheck.CheckIfDockerRunning(tctx, dockerSocketPath); errors.Is(err, context.Canceled) {
 					log.Infof("Docker wait timeout of %s expired", timeout.String())
 					keepRunning = false
 					break
