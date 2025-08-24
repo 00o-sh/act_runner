@@ -39,6 +39,15 @@ jobs:
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
   release-image:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant:
+          - target: basic
+            tag_suffix: ""
+          - target: dind
+            tag_suffix: "-dind"
+          - target: dind-rootless
+            tag_suffix: "-dind-rootless"
     container:
       image: catthehacker/ubuntu:act-latest
     env:
@@ -67,8 +76,8 @@ jobs:
         run: |
           echo REPO_NAME=$(echo ${GITHUB_REPOSITORY} | awk -F"/" '{print $2}') >> $GITHUB_OUTPUT
 
-      - name: "Docker meta: Base"
-        id: docker_base_meta
+      - name: "Docker meta"
+        id: docker_meta
         uses: https://github.com/docker/metadata-action@v5
         with:
           images: |
@@ -79,67 +88,16 @@ jobs:
             type=semver,pattern={{major}}
           flavor: |
             latest=true
-
-      - name: "Docker meta: DinD"
-        id: docker_dind_meta
-        uses: https://github.com/docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.DOCKER_ORG }}/${{ steps.repo_meta.outputs.REPO_NAME }}
-          tags: |
-            type=semver,pattern={{major}}.{{minor}}.{{patch}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-          flavor: |
-            latest=true
-            suffix=-dind,onlatest=true
-
-      - name: "Docker meta: DinD-rootless"
-        id: docker_dind_rootless_meta
-        uses: https://github.com/docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.DOCKER_ORG }}/${{ steps.repo_meta.outputs.REPO_NAME }}
-          tags: |
-            type=semver,pattern={{major}}.{{minor}}.{{patch}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-          flavor: |
-            latest=true
-            suffix=-dind-rootless,onlatest=true
+            suffix=${{ matrix.variant.tag_suffix }},onlatest=true
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          target: basic
+          target: ${{ matrix.variant.target }}
           platforms: |
             linux/amd64
             linux/arm64
           push: true
-          tags: ${{ steps.docker_base_meta.outputs.tags }}
-
-      - name: Build and push dind
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          target: dind
-          platforms: |
-            linux/amd64
-            linux/arm64
-          push: true
-          tags: ${{ steps.docker_dind_meta.outputs.tags }}
-
-      - name: Build and push dind-rootless
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          target: dind-rootless
-          platforms: |
-            linux/amd64
-            linux/arm64
-          push: true
-          tags: ${{ steps.docker_dind_rootless_meta.outputs.tags }}
+          tags: ${{ steps.docker_meta.outputs.tags }}
