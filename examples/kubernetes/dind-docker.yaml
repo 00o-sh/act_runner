@@ -54,11 +54,17 @@ spec:
         - name: docker-socket
           mountPath: /var/run/
         startupProbe:
-          tcpSocket:
-            port: 2376
+          exec:
+            command:
+            - /usr/bin/test
+            - -S
+            - /var/run/docker.sock
         livenessProbe:
-          tcpSocket:
-            port: 2376
+          exec:
+            command:
+            - /usr/bin/test
+            - -S
+            - /var/run/docker.sock
         restartPolicy: Always
       containers:
       - name: runner
