@@ -31,6 +31,7 @@ type Runner struct {
 	FetchTimeout    time.Duration     `yaml:"fetch_timeout"`    // FetchTimeout specifies the timeout duration for fetching resources.
 	FetchInterval   time.Duration     `yaml:"fetch_interval"`   // FetchInterval specifies the interval duration for fetching resources.
 	Labels          []string          `yaml:"labels"`           // Labels specify the labels of the runner. Labels are declared on each startup
+	GithubMirror    string            `yaml:"github_mirror"`    // GithubMirror defines what mirrors should be used when using github
 }
 
 // Cache represents the configuration for caching.
@@ -44,15 +45,17 @@ type Cache struct {
 
 // Container represents the configuration for the container.
 type Container struct {
-	Network       string   `yaml:"network"`        // Network specifies the network for the container.
-	NetworkMode   string   `yaml:"network_mode"`   // Deprecated: use Network instead. Could be removed after Gitea 1.20
-	Privileged    bool     `yaml:"privileged"`     // Privileged indicates whether the container runs in privileged mode.
-	Options       string   `yaml:"options"`        // Options specifies additional options for the container.
-	WorkdirParent string   `yaml:"workdir_parent"` // WorkdirParent specifies the parent directory for the container's working directory.
-	ValidVolumes  []string `yaml:"valid_volumes"`  // ValidVolumes specifies the volumes (including bind mounts) can be mounted to containers.
-	DockerHost    string   `yaml:"docker_host"`    // DockerHost specifies the Docker host. It overrides the value specified in environment variable DOCKER_HOST.
-	ForcePull     bool     `yaml:"force_pull"`     // Pull docker image(s) even if already present
-	ForceRebuild  bool     `yaml:"force_rebuild"`  // Rebuild docker image(s) even if already present
+	Network       string        `yaml:"network"`        // Network specifies the network for the container.
+	NetworkMode   string        `yaml:"network_mode"`   // Deprecated: use Network instead. Could be removed after Gitea 1.20
+	Privileged    bool          `yaml:"privileged"`     // Privileged indicates whether the container runs in privileged mode.
+	Options       string        `yaml:"options"`        // Options specifies additional options for the container.
+	WorkdirParent string        `yaml:"workdir_parent"` // WorkdirParent specifies the parent directory for the container's working directory.
+	ValidVolumes  []string      `yaml:"valid_volumes"`  // ValidVolumes specifies the volumes (including bind mounts) can be mounted to containers.
+	DockerHost    string        `yaml:"docker_host"`    // DockerHost specifies the Docker host. It overrides the value specified in environment variable DOCKER_HOST.
+	ForcePull     bool          `yaml:"force_pull"`     // Pull docker image(s) even if already present
+	ForceRebuild  bool          `yaml:"force_rebuild"`  // Rebuild docker image(s) even if already present
+	RequireDocker bool          `yaml:"require_docker"` // Always require a reachable docker daemon, even if not required by act_runner
+	DockerTimeout time.Duration `yaml:"docker_timeout"` // Timeout to wait for the docker daemon to be reachable, if docker is required by require_docker or act_runner
 }
 
 // Host represents the configuration for the host.
