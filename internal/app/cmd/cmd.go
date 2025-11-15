@@ -39,15 +39,18 @@ func Execute(ctx context.Context) {
 	registerCmd.Flags().StringVar(&regArgs.Token, "token", "", "Runner token")
 	registerCmd.Flags().StringVar(&regArgs.RunnerName, "name", "", "Runner name")
 	registerCmd.Flags().StringVar(&regArgs.Labels, "labels", "", "Runner tags, comma separated")
+	registerCmd.Flags().BoolVar(&regArgs.Ephemeral, "ephemeral", false, "Configure the runner to be ephemeral and only ever be able to pick a single job (stricter than --once)")
 	rootCmd.AddCommand(registerCmd)
 
 	// ./act_runner daemon
+	var daemArgs daemonArgs
 	daemonCmd := &cobra.Command{
 		Use:   "daemon",
 		Short: "Run as a runner daemon",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  runDaemon(ctx, &configFile),
+		Args:  cobra.MaximumNArgs(0),
+		RunE:  runDaemon(ctx, &daemArgs, &configFile),
 	}
+	daemonCmd.Flags().BoolVar(&daemArgs.Once, "once", false, "Run one job then exit")
 	rootCmd.AddCommand(daemonCmd)
 
 	// ./act_runner exec

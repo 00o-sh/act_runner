@@ -12,6 +12,9 @@ spec:
 ---
 apiVersion: v1
 data:
+  # The registration token can be obtained from the web UI, API or command-line.
+  # You can also set a pre-defined global runner registration token for the Gitea instance via 
+  # `GITEA_RUNNER_REGISTRATION_TOKEN`/`GITEA_RUNNER_REGISTRATION_TOKEN_FILE` environment variable.
   token: << base64 encoded registration token >>
 kind: Secret
 metadata:
@@ -46,7 +49,7 @@ spec:
       containers:
       - name: runner
         image: gitea/act_runner:nightly
-        command: ["sh", "-c", "while ! nc -z localhost 2376 </dev/null; do echo 'waiting for docker daemon...'; sleep 5; done; /sbin/tini -- /opt/act/run.sh"]
+        command: ["sh", "-c", "while ! nc -z localhost 2376 </dev/null; do echo 'waiting for docker daemon...'; sleep 5; done; /sbin/tini -- run.sh"]
         env:
         - name: DOCKER_HOST
           value: tcp://localhost:2376

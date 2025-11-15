@@ -52,7 +52,7 @@ func runRegister(ctx context.Context, regArgs *registerArgs, configFile *string)
 			}
 		} else {
 			go func() {
-				if err := registerInteractive(ctx, *configFile); err != nil {
+				if err := registerInteractive(ctx, *configFile, regArgs); err != nil {
 					log.Fatal(err)
 					return
 				}
@@ -75,6 +75,7 @@ type registerArgs struct {
 	Token         string
 	RunnerName    string
 	Labels        string
+	Ephemeral     bool
 }
 
 type registerStage int8
@@ -91,9 +92,9 @@ const (
 )
 
 var defaultLabels = []string{
-	"ubuntu-latest:docker://gitea/runner-images:ubuntu-latest",
-	"ubuntu-22.04:docker://gitea/runner-images:ubuntu-22.04",
-	"ubuntu-20.04:docker://gitea/runner-images:ubuntu-20.04",
+	"ubuntu-latest:docker://docker.gitea.com/runner-images:ubuntu-latest",
+	"ubuntu-24.04:docker://docker.gitea.com/runner-images:ubuntu-24.04",
+	"ubuntu-22.04:docker://docker.gitea.com/runner-images:ubuntu-22.04",
 }
 
 type registerInputs struct {
@@ -101,6 +102,7 @@ type registerInputs struct {
 	Token        string
 	RunnerName   string
 	Labels       []string
+	Ephemeral    bool
 }
 
 func (r *registerInputs) validate() error {
@@ -123,6 +125,22 @@ func validateLabels(ls []string) error {
 		}
 	}
 	return nil
+}
+
+func (r *registerInputs) stageValue(stage registerStage) string {
+	switch stage {
+	case StageInputInstance:
+		return r.InstanceAddr
+	case StageInputToken:
+		return r.Token
+	case StageInputRunnerName:
+		return r.RunnerName
+	case StageInputLabels:
+		if len(r.Labels) > 0 {
+			return strings.Join(r.Labels, ",")
+		}
+	}
+	return ""
 }
 
 func (r *registerInputs) assignToNext(stage registerStage, value string, cfg *config.Config) registerStage {
@@ -178,7 +196,8 @@ func (r *registerInputs) assignToNext(stage registerStage, value string, cfg *co
 		}
 
 		if validateLabels(r.Labels) != nil {
-			log.Infoln("Invalid labels, please input again, leave blank to use the default labels (for example, ubuntu-latest:docker://gitea/runner-images:ubuntu-latest)")
+			log.Infoln("Invalid labels, please input again, leave blank to use the default labels (for example, ubuntu-latest:docker://docker.gitea.com/runner-images:ubuntu-latest)")
+			r.Labels = nil
 			return StageInputLabels
 		}
 		return StageWaitingForRegistration
@@ -186,11 +205,25 @@ func (r *registerInputs) assignToNext(stage registerStage, value string, cfg *co
 	return StageUnknown
 }
 
-func registerInteractive(ctx context.Context, configFile string) error {
+func initInputs(regArgs *registerArgs) *registerInputs {
+	inputs := &registerInputs{
+		InstanceAddr: regArgs.InstanceAddr,
+		Token:        regArgs.Token,
+		RunnerName:   regArgs.RunnerName,
+		Ephemeral:    regArgs.Ephemeral,
+	}
+	regArgs.Labels = strings.TrimSpace(regArgs.Labels)
+	// command line flag.
+	if regArgs.Labels != "" {
+		inputs.Labels = strings.Split(regArgs.Labels, ",")
+	}
+	return inputs
+}
+
+func registerInteractive(ctx context.Context, configFile string, regArgs *registerArgs) error {
 	var (
 		reader = bufio.NewReader(os.Stdin)
 		stage  = StageInputInstance
-		inputs = new(registerInputs)
 	)
 
 	cfg, err := config.LoadDefault(configFile)
@@ -200,13 +233,17 @@ func registerInteractive(ctx context.Context, configFile string) error {
 	if f, err := os.Stat(cfg.Runner.File); err == nil && !f.IsDir() {
 		stage = StageOverwriteLocalConfig
 	}
+	inputs := initInputs(regArgs)
 
 	for {
-		printStageHelp(stage)
-
-		cmdString, err := reader.ReadString('\n')
-		if err != nil {
-			return err
+		cmdString := inputs.stageValue(stage)
+		if cmdString == "" {
+			printStageHelp(stage)
+			var err error
+			cmdString, err = reader.ReadString('\n')
+			if err != nil {
+				return err
+			}
 		}
 		stage = inputs.assignToNext(stage, strings.TrimSpace(cmdString), cfg)
 
@@ -242,7 +279,7 @@ func printStageHelp(stage registerStage) {
 		hostname, _ := os.Hostname()
 		log.Infof("Enter the runner name (if set empty, use hostname: %s):\n", hostname)
 	case StageInputLabels:
-		log.Infoln("Enter the runner labels, leave blank to use the default labels (comma-separated, for example, ubuntu-latest:docker://gitea/runner-images:ubuntu-latest):")
+		log.Infoln("Enter the runner labels, leave blank to use the default labels (comma-separated, for example, ubuntu-latest:docker://docker.gitea.com/runner-images:ubuntu-latest):")
 	case StageWaitingForRegistration:
 		log.Infoln("Waiting for registration...")
 	}
@@ -253,23 +290,16 @@ func registerNoInteractive(ctx context.Context, configFile string, regArgs *regi
 	if err != nil {
 		return err
 	}
-	inputs := &registerInputs{
-		InstanceAddr: regArgs.InstanceAddr,
-		Token:        regArgs.Token,
-		RunnerName:   regArgs.RunnerName,
-		Labels:       defaultLabels,
-	}
-	regArgs.Labels = strings.TrimSpace(regArgs.Labels)
-	// command line flag.
-	if regArgs.Labels != "" {
-		inputs.Labels = strings.Split(regArgs.Labels, ",")
-	}
+	inputs := initInputs(regArgs)
 	// specify labels in config file.
 	if len(cfg.Runner.Labels) > 0 {
 		if regArgs.Labels != "" {
 			log.Warn("Labels from command will be ignored, use labels defined in config file.")
 		}
 		inputs.Labels = cfg.Runner.Labels
+	}
+	if len(inputs.Labels) == 0 {
+		inputs.Labels = defaultLabels
 	}
 
 	if inputs.RunnerName == "" {
@@ -278,7 +308,7 @@ func registerNoInteractive(ctx context.Context, configFile string, regArgs *regi
 	}
 	if err := inputs.validate(); err != nil {
 		log.WithError(err).Errorf("Invalid input, please re-run act command.")
-		return nil
+		return err
 	}
 	if err := doRegister(ctx, cfg, inputs); err != nil {
 		return fmt.Errorf("Failed to register runner: %w", err)
@@ -321,10 +351,11 @@ func doRegister(ctx context.Context, cfg *config.Config, inputs *registerInputs)
 	}
 
 	reg := &config.Registration{
-		Name:    inputs.RunnerName,
-		Token:   inputs.Token,
-		Address: inputs.InstanceAddr,
-		Labels:  inputs.Labels,
+		Name:      inputs.RunnerName,
+		Token:     inputs.Token,
+		Address:   inputs.InstanceAddr,
+		Labels:    inputs.Labels,
+		Ephemeral: inputs.Ephemeral,
 	}
 
 	ls := make([]string, len(reg.Labels))
@@ -339,6 +370,7 @@ func doRegister(ctx context.Context, cfg *config.Config, inputs *registerInputs)
 		Version:     ver.Version(),
 		AgentLabels: ls, // Could be removed after Gitea 1.20
 		Labels:      ls,
+		Ephemeral:   reg.Ephemeral,
 	}))
 	if err != nil {
 		log.WithError(err).Error("poller: cannot register new runner")
@@ -349,6 +381,11 @@ func doRegister(ctx context.Context, cfg *config.Config, inputs *registerInputs)
 	reg.UUID = resp.Msg.Runner.Uuid
 	reg.Name = resp.Msg.Runner.Name
 	reg.Token = resp.Msg.Runner.Token
+
+	if inputs.Ephemeral != resp.Msg.Runner.Ephemeral {
+		// TODO we cannot remove the configuration via runner api, if we return an error here we just fill the database
+		log.Error("poller: cannot register new runner as ephemeral upgrade Gitea to gain security, run-once will be used automatically")
+	}
 
 	if err := config.SaveRegistration(cfg.Runner.File, reg); err != nil {
 		return fmt.Errorf("failed to save runner config: %w", err)
