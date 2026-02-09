@@ -90,7 +90,7 @@ docker run \
   -e GITEA_RUNNER_REGISTRATION_TOKEN=<your_token> \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --name my_runner \
-  ghcr.io/<owner>/act_runner:latest
+  ghcr.io/00o-sh/act_runner:latest
 ```
 
 ### Configuration
@@ -119,36 +119,60 @@ Check out the [examples](examples) directory for sample deployment types.
 
 This repository includes Helm charts modeled after the [GitHub Actions Runner Controller (ARC)](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners-with-actions-runner-controller) pattern:
 
-| Chart | Description |
-|-------|-------------|
-| [act-runner-controller](charts/act-runner-controller/) | Shared infrastructure: RBAC, service accounts, and controller deployment |
-| [act-runner-scale-set](charts/act-runner-scale-set/) | Configurable runner scale set with DinD, rootless, and basic modes |
+| Chart | OCI Reference |
+|-------|---------------|
+| [act-runner-controller](charts/act-runner-controller/) | `oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller` |
+| [act-runner-scale-set](charts/act-runner-scale-set/) | `oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set` |
 
 ### Quick install
 
 ```bash
-# Install the controller
-helm install act-runner-controller charts/act-runner-controller \
-  -n act-runner-system --create-namespace
-
-# Install a runner scale set
-helm install my-runners charts/act-runner-scale-set \
-  -n act-runners --create-namespace \
-  --set giteaConfigUrl=http://gitea.example.com \
-  --set giteaConfigSecret.token=<registration-token> \
-  --set containerMode.type=dind
-```
-
-Or from OCI registry (when published):
-
-```bash
+# 1. Install the controller (once per cluster)
 helm install act-runner-controller \
-  oci://ghcr.io/<owner>/act_runner/charts/act-runner-controller \
+  oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
+  --version 0.2.14 \
   -n act-runner-system --create-namespace
 
+# 2. Install a runner scale set (once per runner group)
 helm install my-runners \
-  oci://ghcr.io/<owner>/act_runner/charts/act-runner-scale-set \
+  oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
+  --version 0.2.14 \
   -n act-runners --create-namespace \
-  --set giteaConfigUrl=http://gitea.example.com \
+  --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<registration-token>
 ```
+
+### Container modes
+
+The scale-set chart supports three container modes:
+
+```bash
+# Docker-in-Docker (privileged sidecar)
+helm install dind-runners \
+  oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
+  --version 0.2.14 \
+  -n act-runners \
+  --set giteaConfigUrl=https://gitea.example.com \
+  --set giteaConfigSecret.token=<token> \
+  --set containerMode.type=dind
+
+# Docker-in-Docker rootless
+helm install rootless-runners \
+  oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
+  --version 0.2.14 \
+  -n act-runners \
+  --set giteaConfigUrl=https://gitea.example.com \
+  --set giteaConfigSecret.token=<token> \
+  --set containerMode.type=dind-rootless
+
+# Host Docker socket
+helm install socket-runners \
+  oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
+  --version 0.2.14 \
+  -n act-runners \
+  --set giteaConfigUrl=https://gitea.example.com \
+  --set giteaConfigSecret.token=<token> \
+  --set hostDockerSocket.enabled=true
+```
+
+See each chart's [README](charts/) for full values documentation.
