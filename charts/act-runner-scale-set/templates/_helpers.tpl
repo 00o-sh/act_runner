@@ -89,11 +89,29 @@ Runner scale set name (used as runner name prefix)
 {{- end }}
 
 {{/*
-Secret name for Gitea registration token
+Determine if we should create a Secret for the registration token.
+True when giteaConfigSecret is a map with a .token value and no .name override.
+*/}}
+{{- define "act-runner-scale-set.createSecret" -}}
+{{- if kindIs "map" .Values.giteaConfigSecret }}
+  {{- if and (index .Values.giteaConfigSecret "token") (not (index .Values.giteaConfigSecret "name")) }}
+    {{- true }}
+  {{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Secret name for Gitea registration token.
+Supports giteaConfigSecret as:
+  - a string: used directly as the Secret name
+  - a map with .name: used as the Secret name
+  - a map with .token (no .name): generates a name from the release
 */}}
 {{- define "act-runner-scale-set.secretName" -}}
-{{- if .Values.giteaConfigSecret.name }}
-{{- .Values.giteaConfigSecret.name }}
+{{- if kindIs "string" .Values.giteaConfigSecret }}
+{{- .Values.giteaConfigSecret }}
+{{- else if and (kindIs "map" .Values.giteaConfigSecret) (index .Values.giteaConfigSecret "name") }}
+{{- index .Values.giteaConfigSecret "name" }}
 {{- else }}
 {{- printf "%s-gitea-secret" (include "act-runner-scale-set.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
