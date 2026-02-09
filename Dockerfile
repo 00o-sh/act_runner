@@ -9,8 +9,13 @@ RUN apk add --no-cache make git
 ARG GOPROXY
 ENV GOPROXY=${GOPROXY:-}
 
-COPY . /opt/src/act_runner
 WORKDIR /opt/src/act_runner
+
+# Cache Go module downloads — only re-downloaded when go.mod/go.sum change
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
 
 RUN make clean && make build
 
