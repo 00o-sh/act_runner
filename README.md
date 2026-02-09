@@ -130,13 +130,13 @@ This repository includes Helm charts modeled after the [GitHub Actions Runner Co
 # 1. Install the controller (once per cluster)
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.14 \
+  --version 0.2.15 \
   -n act-runner-system --create-namespace
 
 # 2. Install a runner scale set (once per runner group)
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.14 \
+  --version 0.2.15 \
   -n act-runners --create-namespace \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<registration-token>
@@ -150,7 +150,7 @@ The scale-set chart supports three container modes:
 # Docker-in-Docker (privileged sidecar)
 helm install dind-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.14 \
+  --version 0.2.15 \
   -n act-runners \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<token> \
@@ -159,7 +159,7 @@ helm install dind-runners \
 # Docker-in-Docker rootless
 helm install rootless-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.14 \
+  --version 0.2.15 \
   -n act-runners \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<token> \
@@ -168,7 +168,7 @@ helm install rootless-runners \
 # Host Docker socket
 helm install socket-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.14 \
+  --version 0.2.15 \
   -n act-runners \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<token> \
