@@ -5,9 +5,17 @@
 giteaConfigUrl: ""
 
 # -- Authentication secret for runner registration.
-# Provide EITHER token directly OR reference a pre-existing secret.
+# Can be specified as:
+#   1. A map with token (chart creates the Secret):
+#        giteaConfigSecret:
+#          token: "your-registration-token"
+#   2. A map with name (reference pre-existing Secret):
+#        giteaConfigSecret:
+#          name: "my-existing-secret"
+#   3. A string (shorthand for pre-existing Secret name):
+#        giteaConfigSecret: "my-existing-secret"
 giteaConfigSecret:
-  # -- Registration token (will be stored in a Secret)
+  # -- Registration token (will be stored in a chart-managed Secret)
   token: ""
   # -- Name of a pre-existing Secret containing the token in a key called "token"
   name: ""

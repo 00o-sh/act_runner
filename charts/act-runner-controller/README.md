@@ -17,7 +17,7 @@ Install this chart **once per cluster**, then install `act-runner-scale-set` onc
 ```bash
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.15 \
+  --version 0.2.16 \
   -n act-runner-system --create-namespace
 ```
 
@@ -56,13 +56,13 @@ Best practice is to install the controller in its own namespace (`act-runner-sys
 # Controller
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.15 \
+  --version 0.2.16 \
   -n act-runner-system --create-namespace
 
 # Runners
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.15 \
+  --version 0.2.16 \
   -n act-runners --create-namespace \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<token>
