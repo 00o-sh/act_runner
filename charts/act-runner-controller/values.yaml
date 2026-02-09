@@ -6,7 +6,7 @@ replicaCount: 1
 
 image:
   # -- Controller image repository
-  repository: ghcr.io/gitea/act_runner
+  repository: ghcr.io/00o-sh/act_runner
   # -- Image pull policy
   pullPolicy: IfNotPresent
   # -- Image tag override (defaults to chart appVersion)
