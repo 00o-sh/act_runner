@@ -1,0 +1,15 @@
+act-runner-scale-set "{{ include "act-runner-scale-set.runnerScaleSetName" . }}" has been installed.
+
+Namespace: {{ .Release.Namespace }}
+Gitea URL: {{ .Values.giteaConfigUrl }}
+Container Mode: {{ .Values.containerMode.type | default "basic" }}
+Replicas: {{ .Values.replicas }}
+{{- if .Values.ephemeral }}
+Mode: Ephemeral (runner exits after one job)
+{{- end }}
+
+Verify the runners are registered:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Check runner logs:
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -c runner -f

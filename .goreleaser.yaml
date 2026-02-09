@@ -107,11 +107,10 @@ snapshot:
 nightly:
   version_template: "nightly"
 
-gitea_urls:
-  api: https://gitea.com/api/v1
-  download: https://gitea.com
-
 release:
+  github:
+    owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
+    name: act_runner
   extra_files:
     - glob: ./**.xz
     - glob: ./**.xz.sha256

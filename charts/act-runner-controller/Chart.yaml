@@ -1,0 +1,17 @@
+apiVersion: v2
+name: act-runner-controller
+description: Controller infrastructure for act_runner scale sets on Kubernetes
+type: application
+version: 0.1.0
+appVersion: "0.2.11"
+home: https://gitea.com/gitea/act_runner
+sources:
+  - https://gitea.com/gitea/act_runner
+keywords:
+  - gitea
+  - actions
+  - runner
+  - ci
+  - cd
+maintainers:
+  - name: act-runner-controller

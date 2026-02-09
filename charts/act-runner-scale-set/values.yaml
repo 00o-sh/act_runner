@@ -1,0 +1,171 @@
+# act-runner-scale-set values
+# Each installation of this chart creates one runner scale set.
+
+# -- (required) Gitea instance URL (e.g. https://gitea.example.com)
+giteaConfigUrl: ""
+
+# -- Authentication secret for runner registration.
+# Provide EITHER token directly OR reference a pre-existing secret.
+giteaConfigSecret:
+  # -- Registration token (will be stored in a Secret)
+  token: ""
+  # -- Name of a pre-existing Secret containing the token in a key called "token"
+  name: ""
+
+# -- Runner scale set name. Used as the runner name prefix.
+# Defaults to the Helm release name.
+runnerScaleSetName: ""
+
+# -- Runner labels (comma-separated).
+# Example: "ubuntu-latest:docker://node:20,self-hosted"
+# Leave empty for defaults.
+runnerLabels: ""
+
+# -- Number of runner replicas
+replicas: 1
+
+# -- Maximum number of runner replicas (for HPA)
+maxRunners: 10
+
+# -- Minimum number of runner replicas (for HPA)
+minRunners: 1
+
+# -- Enable Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+  # -- Min replicas for HPA
+  minReplicas: 1
+  # -- Max replicas for HPA
+  maxReplicas: 10
+  # -- Target CPU utilization for scaling
+  targetCPUUtilizationPercentage: 80
+  # -- Target memory utilization for scaling
+  # targetMemoryUtilizationPercentage: 80
+
+# -- Run as ephemeral runner (runner exits after one job)
+ephemeral: false
+
+image:
+  # -- Runner image repository
+  repository: ghcr.io/gitea/act_runner
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Image tag override (defaults to chart appVersion with variant suffix)
+  tag: ""
+
+# -- Image pull secrets
+imagePullSecrets: []
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+# Container mode configuration
+containerMode:
+  # -- Container mode type: "dind", "dind-rootless", or "" (basic/host docker socket)
+  type: ""
+  # -- Docker-in-Docker image (only for dind/dind-rootless modes)
+  dindImage: "docker:28-dind"
+  # -- Docker-in-Docker rootless image
+  dindRootlessImage: "docker:28-dind-rootless"
+
+# -- Mount the host Docker socket instead of using DinD.
+# Only used when containerMode.type is empty.
+hostDockerSocket:
+  enabled: false
+  path: /var/run/docker.sock
+
+# Runner configuration file content (YAML).
+# If empty, the runner uses its built-in defaults.
+# Use act_runner generate-config to see all options.
+runnerConfig: ""
+  # Example:
+  # log:
+  #   level: info
+  # runner:
+  #   file: .runner
+  #   capacity: 1
+  #   timeout: 3h
+  # container:
+  #   network: ""
+  #   privileged: false
+
+serviceAccount:
+  # -- Create a service account for runner pods
+  create: true
+  # -- Annotations for the service account
+  annotations: {}
+  # -- Service account name override
+  name: ""
+
+# -- Additional labels to add to all resources
+additionalLabels: {}
+
+# -- Additional annotations to add to all resources
+additionalAnnotations: {}
+
+# -- Pod-level annotations
+podAnnotations: {}
+
+# -- Pod-level security context
+podSecurityContext: {}
+
+# -- Container-level security context (runner container)
+securityContext: {}
+
+resources: {}
+  # limits:
+  #   cpu: "2"
+  #   memory: 4Gi
+  # requests:
+  #   cpu: 500m
+  #   memory: 1Gi
+
+# Persistent storage for runner data
+persistence:
+  # -- Enable persistent storage for runner registration data
+  enabled: true
+  # -- Storage class (empty = default)
+  storageClass: ""
+  # -- Access mode
+  accessMode: ReadWriteOnce
+  # -- Storage size
+  size: 1Gi
+
+# -- Node selector for runner pods
+nodeSelector: {}
+
+# -- Tolerations for runner pods
+tolerations: []
+
+# -- Affinity rules for runner pods
+affinity: {}
+
+# -- Priority class for runner pods
+priorityClassName: ""
+
+# -- Extra environment variables for the runner container
+extraEnv: []
+  # - name: CUSTOM_VAR
+  #   value: "custom-value"
+
+# -- Extra volume mounts for the runner container
+extraVolumeMounts: []
+
+# -- Extra volumes for the pod
+extraVolumes: []
+
+# -- TLS configuration for Gitea server
+giteaServerTLS:
+  # -- Name of a ConfigMap containing a CA certificate
+  certificateFrom:
+    configMapRef:
+      name: ""
+      key: "ca.crt"
+
+# -- HTTP proxy configuration
+proxy:
+  http: ""
+  https: ""
+  noProxy: ""

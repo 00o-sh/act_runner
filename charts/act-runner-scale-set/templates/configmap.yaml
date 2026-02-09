@@ -1,0 +1,12 @@
+{{- if .Values.runnerConfig }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "act-runner-scale-set.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "act-runner-scale-set.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- .Values.runnerConfig | nindent 4 }}
+{{- end }}

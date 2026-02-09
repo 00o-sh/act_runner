@@ -1,0 +1,77 @@
+# act-runner-controller values
+# This chart installs shared infrastructure for act_runner scale sets.
+
+# -- Number of controller replicas (for leader election, use > 1)
+replicaCount: 1
+
+image:
+  # -- Controller image repository
+  repository: ghcr.io/gitea/act_runner
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Image tag override (defaults to chart appVersion)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a service account for the controller
+  create: true
+  # -- Annotations for the service account
+  annotations: {}
+  # -- Service account name override
+  name: ""
+
+# -- Additional labels to add to all resources
+additionalLabels: {}
+
+# -- Additional annotations to add to all resources
+additionalAnnotations: {}
+
+# -- Pod-level annotations
+podAnnotations: {}
+
+# -- Pod-level security context
+podSecurityContext: {}
+
+# -- Container-level security context
+securityContext: {}
+
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 50m
+  #   memory: 64Mi
+
+# -- Node selector for controller pods
+nodeSelector: {}
+
+# -- Tolerations for controller pods
+tolerations: []
+
+# -- Affinity rules for controller pods
+affinity: {}
+
+# -- Priority class for controller pods
+priorityClassName: ""
+
+# -- Log level: debug, info, warn, error
+logLevel: info
+
+# -- Log format: text, json
+logFormat: text
+
+# RBAC configuration
+rbac:
+  # -- Create RBAC resources (ClusterRole, ClusterRoleBinding)
+  create: true
+  # -- Watch all namespaces or only the release namespace
+  watchAllNamespaces: true
