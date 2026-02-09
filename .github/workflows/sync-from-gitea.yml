@@ -1,0 +1,99 @@
+name: sync-from-gitea
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Sync from Gitea upstream
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add Gitea remote
+        run: |
+          git remote add gitea https://gitea.com/gitea/act_runner.git || true
+          git fetch gitea main
+
+      - name: Check for changes
+        id: diff
+        run: |
+          # Compare our main with gitea/main, excluding files we've customized
+          CHANGES=$(git diff HEAD..gitea/main --stat -- \
+            ':!.github' \
+            ':!.gitea' \
+            ':!charts' \
+            ':!.goreleaser.yaml' \
+            ':!README.md' \
+            | tail -1)
+          if [ -z "$CHANGES" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "Found upstream changes:"
+            git diff HEAD..gitea/main --stat -- \
+              ':!.github' \
+              ':!.gitea' \
+              ':!charts' \
+              ':!.goreleaser.yaml' \
+              ':!README.md'
+          fi
+
+      - name: Create sync branch
+        if: steps.diff.outputs.has_changes == 'true'
+        run: |
+          BRANCH="sync/gitea-upstream-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH"
+
+          # Merge upstream changes, excluding our custom files
+          git merge gitea/main --no-commit --no-ff || true
+
+          # Restore our customized files
+          git checkout HEAD -- .github/ charts/ .goreleaser.yaml README.md 2>/dev/null || true
+
+          # Check if there are actual changes to commit
+          if git diff --cached --quiet && git diff --quiet; then
+            echo "No mergeable changes after excluding customized files"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "sync: merge upstream changes from gitea.com/gitea/act_runner"
+          git push origin "$BRANCH"
+
+          echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
+
+      - name: Create Pull Request
+        if: steps.diff.outputs.has_changes == 'true' && env.BRANCH != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --title "sync: upstream changes from gitea/act_runner" \
+            --body "$(cat <<'EOF'
+          ## Automated upstream sync
+
+          This PR merges the latest changes from the upstream Gitea act_runner repository.
+
+          **Source:** https://gitea.com/gitea/act_runner
+
+          ### Review checklist
+          - [ ] Check for breaking changes in Go dependencies
+          - [ ] Verify Dockerfile changes are compatible
+          - [ ] Ensure Helm chart values still align with runner config
+          - [ ] Run tests locally if needed
+          EOF
+          )" \
+            --base main \
+            --head "$BRANCH"

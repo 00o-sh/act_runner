@@ -2,6 +2,9 @@
 
 Act runner is a runner for Gitea based on [Gitea fork](https://gitea.com/gitea/act) of [act](https://github.com/nektos/act).
 
+> **Note:** This is a GitHub mirror/fork of [gitea.com/gitea/act_runner](https://gitea.com/gitea/act_runner).
+> Upstream changes are synced automatically via the [sync-from-gitea](.github/workflows/sync-from-gitea.yml) workflow.
+
 ## Installation
 
 ### Prerequisites
@@ -10,7 +13,7 @@ Docker Engine Community version is required for docker mode. To install Docker C
 
 ### Download pre-built binary
 
-Visit [here](https://dl.gitea.com/act_runner/) and download the right version for your platform.
+Visit the [Releases](../../releases) page and download the right version for your platform.
 
 ### Build from source
 
@@ -26,8 +29,8 @@ make docker
 
 ## Quickstart
 
-Actions are disabled by default, so you need to add the following to the configuration file of your Gitea instance to enable it: 
-  
+Actions are disabled by default, so you need to add the following to the configuration file of your Gitea instance to enable it:
+
 ```ini
 [actions]
 ENABLED=true
@@ -82,7 +85,12 @@ If the registry succeed, it will run immediately. Next time, you could run the r
 ### Run with docker
 
 ```bash
-docker run -e GITEA_INSTANCE_URL=https://your_gitea.com -e GITEA_RUNNER_REGISTRATION_TOKEN=<your_token> -v /var/run/docker.sock:/var/run/docker.sock --name my_runner gitea/act_runner:nightly
+docker run \
+  -e GITEA_INSTANCE_URL=https://your_gitea.com \
+  -e GITEA_RUNNER_REGISTRATION_TOKEN=<your_token> \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  --name my_runner \
+  ghcr.io/<owner>/act_runner:latest
 ```
 
 ### Configuration
@@ -106,3 +114,41 @@ You can read the latest version of the configuration file online at [config.exam
 ### Example Deployments
 
 Check out the [examples](examples) directory for sample deployment types.
+
+## Helm Charts
+
+This repository includes Helm charts modeled after the [GitHub Actions Runner Controller (ARC)](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners-with-actions-runner-controller) pattern:
+
+| Chart | Description |
+|-------|-------------|
+| [act-runner-controller](charts/act-runner-controller/) | Shared infrastructure: RBAC, service accounts, and controller deployment |
+| [act-runner-scale-set](charts/act-runner-scale-set/) | Configurable runner scale set with DinD, rootless, and basic modes |
+
+### Quick install
+
+```bash
+# Install the controller
+helm install act-runner-controller charts/act-runner-controller \
+  -n act-runner-system --create-namespace
+
+# Install a runner scale set
+helm install my-runners charts/act-runner-scale-set \
+  -n act-runners --create-namespace \
+  --set giteaConfigUrl=http://gitea.example.com \
+  --set giteaConfigSecret.token=<registration-token> \
+  --set containerMode.type=dind
+```
+
+Or from OCI registry (when published):
+
+```bash
+helm install act-runner-controller \
+  oci://ghcr.io/<owner>/act_runner/charts/act-runner-controller \
+  -n act-runner-system --create-namespace
+
+helm install my-runners \
+  oci://ghcr.io/<owner>/act_runner/charts/act-runner-scale-set \
+  -n act-runners --create-namespace \
+  --set giteaConfigUrl=http://gitea.example.com \
+  --set giteaConfigSecret.token=<registration-token>
+```
