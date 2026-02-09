@@ -13,7 +13,7 @@ Each installation of this chart creates one runner scale set — a group of runn
 ```bash
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.16 \
+  --version 0.2.17 \
   -n act-runners --create-namespace \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<registration-token>
@@ -32,7 +32,7 @@ helm install my-runners \
 ```bash
 helm install dind-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.16 \
+  --version 0.2.17 \
   -n act-runners \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<token> \
@@ -44,7 +44,7 @@ helm install dind-runners \
 ```bash
 helm install socket-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.16 \
+  --version 0.2.17 \
   -n act-runners \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<token> \
@@ -186,7 +186,7 @@ kubectl create secret generic my-runner-token \
 
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.16 \
+  --version 0.2.17 \
   -n act-runners \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.name=my-runner-token
