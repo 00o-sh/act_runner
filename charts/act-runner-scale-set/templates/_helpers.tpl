@@ -67,13 +67,14 @@ Create the name of the service account to use
 Runner image reference - selects the correct tag variant based on containerMode
 */}}
 {{- define "act-runner-scale-set.image" -}}
+{{- $containerType := .Values.containerMode.type | default "" -}}
 {{- if .Values.image.tag }}
 {{- printf "%s:%s" .Values.image.repository .Values.image.tag }}
 {{- else }}
 {{- $tag := .Chart.AppVersion }}
-{{- if eq .Values.containerMode.type "dind" }}
+{{- if eq $containerType "dind" }}
 {{- printf "%s:%s-dind" .Values.image.repository $tag }}
-{{- else if eq .Values.containerMode.type "dind-rootless" }}
+{{- else if eq $containerType "dind-rootless" }}
 {{- printf "%s:%s-dind-rootless" .Values.image.repository $tag }}
 {{- else }}
 {{- printf "%s:%s" .Values.image.repository $tag }}

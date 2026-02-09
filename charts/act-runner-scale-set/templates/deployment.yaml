@@ -1,6 +1,7 @@
 {{- $fullname := include "act-runner-scale-set.fullname" . -}}
 {{- $secretName := include "act-runner-scale-set.secretName" . -}}
 {{- $runnerName := include "act-runner-scale-set.runnerScaleSetName" . -}}
+{{- $containerType := .Values.containerMode.type | default "" -}}
 apiVersion: apps/v1
 {{- if .Values.persistence.enabled }}
 kind: StatefulSet
@@ -30,6 +31,7 @@ spec:
     metadata:
       labels:
         {{- include "act-runner-scale-set.selectorLabels" . | nindent 8 }}
+      {{- if or .Values.runnerConfig .Values.podAnnotations }}
       annotations:
         {{- if .Values.runnerConfig }}
         checksum/config: {{ .Values.runnerConfig | sha256sum }}
@@ -37,6 +39,7 @@ spec:
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+      {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -52,31 +55,26 @@ spec:
       {{- end }}
       restartPolicy: Always
       volumes:
-        {{- /* Runner data volume (when not using persistence/StatefulSet) */}}
         {{- if not .Values.persistence.enabled }}
         - name: runner-data
           emptyDir: {}
         {{- end }}
-        {{- /* Config volume */}}
         {{- if .Values.runnerConfig }}
         - name: runner-config
           configMap:
             name: {{ include "act-runner-scale-set.configMapName" . }}
         {{- end }}
-        {{- /* DinD mode: shared docker certs */}}
-        {{- if eq .Values.containerMode.type "dind" }}
+        {{- if eq $containerType "dind" }}
         - name: docker-certs
           emptyDir: {}
         {{- end }}
-        {{- /* Host Docker socket */}}
-        {{- if and (not .Values.containerMode.type) .Values.hostDockerSocket.enabled }}
+        {{- if and (not $containerType) .Values.hostDockerSocket.enabled }}
         - name: docker-socket
           hostPath:
             path: {{ .Values.hostDockerSocket.path }}
             type: Socket
         {{- end }}
-        {{- /* TLS CA certificate */}}
-        {{- if .Values.giteaServerTLS.certificateFrom.configMapRef.name }}
+        {{- if and .Values.giteaServerTLS .Values.giteaServerTLS.certificateFrom .Values.giteaServerTLS.certificateFrom.configMapRef .Values.giteaServerTLS.certificateFrom.configMapRef.name }}
         - name: tls-ca
           configMap:
             name: {{ .Values.giteaServerTLS.certificateFrom.configMapRef.name }}
@@ -85,8 +83,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
 
-      {{- /* DinD mode: wait for docker daemon init container */}}
-      {{- if eq .Values.containerMode.type "dind" }}
+      {{- if eq $containerType "dind" }}
       initContainers:
         - name: init-dind-externals
           image: {{ include "act-runner-scale-set.image" . }}
@@ -95,16 +92,15 @@ spec:
       {{- end }}
 
       containers:
-        {{- /* ===== RUNNER CONTAINER ===== */}}
         - name: runner
           image: {{ include "act-runner-scale-set.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- if and (not (eq .Values.containerMode.type "dind")) (not (eq .Values.containerMode.type "dind-rootless")) }}
+          {{- if and (ne $containerType "dind") (ne $containerType "dind-rootless") }}
           command: ["sh", "-c", "/sbin/tini -- run.sh"]
           {{- end }}
           env:
             - name: GITEA_INSTANCE_URL
-              value: {{ required "giteaConfigUrl is required" .Values.giteaConfigUrl | quote }}
+              value: {{ .Values.giteaConfigUrl | quote }}
             - name: GITEA_RUNNER_REGISTRATION_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -120,8 +116,7 @@ spec:
             - name: GITEA_RUNNER_EPHEMERAL
               value: "true"
             {{- end }}
-            {{- /* DinD mode: docker connection via TLS */}}
-            {{- if eq .Values.containerMode.type "dind" }}
+            {{- if eq $containerType "dind" }}
             - name: DOCKER_HOST
               value: tcp://localhost:2376
             - name: DOCKER_CERT_PATH
@@ -129,7 +124,6 @@ spec:
             - name: DOCKER_TLS_VERIFY
               value: "1"
             {{- end }}
-            {{- /* Proxy settings */}}
             {{- if .Values.proxy.http }}
             - name: HTTP_PROXY
               value: {{ .Values.proxy.http | quote }}
@@ -167,16 +161,16 @@ spec:
               mountPath: /etc/act_runner
               readOnly: true
             {{- end }}
-            {{- if eq .Values.containerMode.type "dind" }}
+            {{- if eq $containerType "dind" }}
             - name: docker-certs
               mountPath: /certs
             {{- end }}
-            {{- if and (not .Values.containerMode.type) .Values.hostDockerSocket.enabled }}
+            {{- if and (not $containerType) .Values.hostDockerSocket.enabled }}
             - name: docker-socket
               mountPath: /var/run/docker.sock
               readOnly: true
             {{- end }}
-            {{- if .Values.giteaServerTLS.certificateFrom.configMapRef.name }}
+            {{- if and .Values.giteaServerTLS .Values.giteaServerTLS.certificateFrom .Values.giteaServerTLS.certificateFrom.configMapRef .Values.giteaServerTLS.certificateFrom.configMapRef.name }}
             - name: tls-ca
               mountPath: /etc/ssl/certs/gitea-ca.crt
               subPath: {{ .Values.giteaServerTLS.certificateFrom.configMapRef.key | default "ca.crt" }}
@@ -186,8 +180,7 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
 
-        {{- /* ===== DIND SIDECAR CONTAINER ===== */}}
-        {{- if eq .Values.containerMode.type "dind" }}
+        {{- if eq $containerType "dind" }}
         - name: dind
           image: {{ .Values.containerMode.dindImage }}
           env:
@@ -200,11 +193,6 @@ spec:
               mountPath: /certs
             - name: runner-data
               mountPath: /data
-        {{- end }}
-
-        {{- /* ===== DIND-ROOTLESS: runs embedded in the image, needs privileged */}}
-        {{- if eq .Values.containerMode.type "dind-rootless" }}
-        {{- /* The dind-rootless image has Docker embedded via s6-svscan entrypoint */}}
         {{- end }}
 
       {{- with .Values.nodeSelector }}
@@ -220,7 +208,6 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
 
-  {{- /* VolumeClaimTemplates for StatefulSet */}}
   {{- if .Values.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
