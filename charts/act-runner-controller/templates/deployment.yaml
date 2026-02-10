@@ -40,18 +40,26 @@ spec:
         - name: controller
           image: {{ include "act-runner-controller.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["act_runner"]
-          args:
-            - "daemon"
           env:
-            - name: LOG_LEVEL
-              value: {{ .Values.logLevel | quote }}
-            - name: LOG_FORMAT
-              value: {{ .Values.logFormat | quote }}
-            - name: CONTROLLER_NAMESPACE
+            - name: FORGEJO_URL
+              value: {{ .Values.forgejo.url | quote }}
+            - name: FORGEJO_API_TOKEN
               valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
+                secretKeyRef:
+                  name: {{ include "act-runner-controller.apiTokenSecretName" . }}
+                  key: {{ .Values.forgejo.apiTokenSecret.key | default "token" }}
+            - name: FORGEJO_SCOPE
+              value: {{ .Values.forgejo.scope | default "admin" | quote }}
+            {{- if eq (default "admin" .Values.forgejo.scope) "org" }}
+            - name: FORGEJO_ORG
+              value: {{ .Values.forgejo.org | quote }}
+            {{- end }}
+            - name: RECONCILE_INTERVAL
+              value: {{ .Values.reconcileInterval | default 30 | quote }}
+            - name: SCALE_DOWN_DELAY
+              value: {{ .Values.scaleDownDelay | default 300 | quote }}
+            - name: WATCH_ALL_NAMESPACES
+              value: {{ .Values.rbac.watchAllNamespaces | default true | quote }}
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -60,6 +68,14 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - test -f /tmp/controller-alive && test $(($(date +%s) - $(stat -c %Y /tmp/controller-alive 2>/dev/null || echo 0))) -lt 120
+            initialDelaySeconds: 10
+            periodSeconds: 30
           volumeMounts:
             - name: tmp
               mountPath: /tmp

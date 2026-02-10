@@ -1,6 +1,6 @@
 # act-runner-scale-set
 
-A configurable [act_runner](https://gitea.com/gitea/act_runner) scale set for Gitea Actions on Kubernetes.
+A configurable [act_runner](https://gitea.com/gitea/act_runner) scale set for Forgejo/Gitea Actions on Kubernetes.
 
 ## Overview
 
@@ -13,7 +13,7 @@ Each installation of this chart creates one runner scale set — a group of runn
 ```bash
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.17 \
+  --version 0.2.18 \
   -n act-runners --create-namespace \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<registration-token>
@@ -32,7 +32,7 @@ helm install my-runners \
 ```bash
 helm install dind-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.17 \
+  --version 0.2.18 \
   -n act-runners \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<token> \
@@ -44,7 +44,7 @@ helm install dind-runners \
 ```bash
 helm install socket-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.17 \
+  --version 0.2.18 \
   -n act-runners \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.token=<token> \
@@ -97,14 +97,16 @@ Or reference a pre-existing Secret:
 
 ### Autoscaling
 
+The `act-runner-controller` provides **job-aware autoscaling** — it reads `minRunners` and `maxRunners` from annotations on the Deployment/StatefulSet and scales replicas based on pending Forgejo jobs. The HPA values below are for CPU/memory-based scaling as a fallback.
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `autoscaling.enabled` | bool | `false` | Enable HPA |
-| `autoscaling.minReplicas` | int | `1` | Minimum replicas |
-| `autoscaling.maxReplicas` | int | `10` | Maximum replicas |
-| `autoscaling.targetCPUUtilizationPercentage` | int | `80` | CPU target for scaling |
-| `maxRunners` | int | `10` | Max runner replicas |
-| `minRunners` | int | `1` | Min runner replicas |
+| `minRunners` | int | `1` | Min runner replicas (used by controller) |
+| `maxRunners` | int | `10` | Max runner replicas (used by controller) |
+| `autoscaling.enabled` | bool | `false` | Enable HPA (CPU/memory-based) |
+| `autoscaling.minReplicas` | int | `1` | Minimum replicas (HPA) |
+| `autoscaling.maxReplicas` | int | `10` | Maximum replicas (HPA) |
+| `autoscaling.targetCPUUtilizationPercentage` | int | `80` | CPU target for scaling (HPA) |
 
 ### Storage
 
@@ -186,7 +188,7 @@ kubectl create secret generic my-runner-token \
 
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.17 \
+  --version 0.2.18 \
   -n act-runners \
   --set giteaConfigUrl=https://gitea.example.com \
   --set giteaConfigSecret.name=my-runner-token

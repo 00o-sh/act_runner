@@ -64,9 +64,32 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
-Controller image reference
+Controller image reference — uses the -controller tagged variant
 */}}
 {{- define "act-runner-controller.image" -}}
-{{- $tag := default .Chart.AppVersion .Values.image.tag }}
-{{- printf "%s:%s" .Values.image.repository $tag }}
+{{- if .Values.image.tag }}
+{{- printf "%s:%s" .Values.image.repository .Values.image.tag }}
+{{- else }}
+{{- printf "%s:%s-controller" .Values.image.repository .Chart.AppVersion }}
+{{- end }}
+{{- end }}
+
+{{/*
+Name of the Secret holding the Forgejo API token
+*/}}
+{{- define "act-runner-controller.apiTokenSecretName" -}}
+{{- if .Values.forgejo.apiTokenSecret.name }}
+{{- .Values.forgejo.apiTokenSecret.name }}
+{{- else }}
+{{- printf "%s-forgejo-api" (include "act-runner-controller.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Whether the chart should create the API token Secret
+*/}}
+{{- define "act-runner-controller.createApiTokenSecret" -}}
+{{- if and .Values.forgejo.apiToken (not .Values.forgejo.apiTokenSecret.name) }}
+{{- true }}
+{{- end }}
 {{- end }}

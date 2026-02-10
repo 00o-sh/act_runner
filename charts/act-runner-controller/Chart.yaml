@@ -1,17 +1,19 @@
 apiVersion: v2
 name: act-runner-controller
-description: Controller infrastructure for act_runner scale sets on Kubernetes
+description: Job-aware autoscaler for act_runner scale sets on Kubernetes
 type: application
-version: 0.2.17
-appVersion: "0.2.17"
+version: 0.2.18
+appVersion: "0.2.18"
 home: https://github.com/00o-sh/act_runner
 sources:
   - https://github.com/00o-sh/act_runner
   - https://gitea.com/gitea/act_runner
 keywords:
+  - forgejo
   - gitea
   - actions
   - runner
   - ci
   - cd
+  - autoscaler
 icon: https://gitea.com/assets/img/logo.svg
