@@ -205,19 +205,13 @@ spec:
     {{- toYaml . | nindent 4 }}
     {{- end }}
 
-  {{- if eq $containerType "dind" }}
-  initContainers:
-    - name: init-dind-externals
-      image: {{ include "act-runner-scale-set.image" . }}
-      imagePullPolicy: {{ .Values.image.pullPolicy }}
-      command: ["sh", "-c", "until nc -z localhost 2376; do echo 'waiting for docker daemon...'; sleep 2; done"]
-  {{- end }}
-
   containers:
     - name: runner
       image: {{ include "act-runner-scale-set.image" . }}
       imagePullPolicy: {{ .Values.image.pullPolicy }}
-      {{- if and (ne $containerType "dind") (ne $containerType "dind-rootless") }}
+      {{- if eq $containerType "dind" }}
+      command: ["sh", "-c", "until nc -z localhost 2376; do echo 'waiting for docker daemon...'; sleep 2; done && /sbin/tini -- run.sh"]
+      {{- else if ne $containerType "dind-rootless" }}
       command: ["sh", "-c", "/sbin/tini -- run.sh"]
       {{- end }}
       env:
