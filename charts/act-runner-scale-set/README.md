@@ -140,9 +140,7 @@ Or reference a pre-existing Secret:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `containerMode.type` | string | `""` | `"dind"`, `"dind-rootless"`, or `""` |
-| `containerMode.dindImage` | string | `docker:28-dind` | DinD sidecar image |
-| `containerMode.dindRootlessImage` | string | `docker:28-dind-rootless` | Rootless DinD image |
+| `containerMode.type` | string | `""` | `"dind"`, `"dind-rootless"`, or `""`. DinD modes use the runner image with `-dind`/`-dind-rootless` tag suffix (Docker managed internally via s6) |
 | `hostDockerSocket.enabled` | bool | `false` | Mount host Docker socket (basic mode only) |
 | `hostDockerSocket.path` | string | `/var/run/docker.sock` | Host socket path |
 
