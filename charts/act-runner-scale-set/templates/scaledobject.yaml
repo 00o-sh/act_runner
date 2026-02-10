@@ -35,7 +35,6 @@ spec:
         {{- end }}
         valueLocation: "total_count"
         targetValue: "1"
-        method: "GET"
         authMode: "bearer"
         {{- if .Values.keda.unsafeSsl }}
         unsafeSsl: "true"
