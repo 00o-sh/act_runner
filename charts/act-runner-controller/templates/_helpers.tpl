@@ -88,13 +88,17 @@ Name of the KEDA TriggerAuthentication resource.
 
 {{/*
 Forgejo jobs API URL based on scope (admin vs org).
-Used by the scale-set chart's ScaledObject to configure the KEDA metrics-api trigger.
+Note: This helper is provided for reference. The scale-set chart accepts
+a full URL via keda.metricsUrl so users can target their exact endpoint.
+
+Forgejo uses: /api/v1/admin/runners/jobs
+Gitea uses:   /api/v1/admin/actions/jobs
 */}}
 {{- define "act-runner-controller.jobsApiUrl" -}}
 {{- $url := .Values.forgejo.url | default "" | trimSuffix "/" -}}
 {{- if eq (.Values.forgejo.scope | default "admin") "org" -}}
 {{- printf "%s/api/v1/orgs/%s/actions/jobs?status=waiting&limit=1" $url (.Values.forgejo.org | default "") }}
 {{- else -}}
-{{- printf "%s/api/v1/admin/actions/jobs?status=waiting&limit=1" $url }}
+{{- printf "%s/api/v1/admin/runners/jobs?status=waiting&limit=1" $url }}
 {{- end -}}
 {{- end }}

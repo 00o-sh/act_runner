@@ -42,7 +42,7 @@ helm install my-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token> \
   --set keda.enabled=true \
-  --set keda.forgejoApiUrl=https://forgejo.example.com \
+  --set "keda.metricsUrl=https://forgejo.example.com/api/v1/admin/runners/jobs?status=waiting&limit=1" \
   --set keda.triggerAuthenticationRef=act-runner-controller-trigger-auth
 ```
 
@@ -59,7 +59,7 @@ helm install my-runners \
   --set giteaConfigSecret.token=<registration-token> \
   --set ephemeral=true \
   --set keda.enabled=true \
-  --set keda.forgejoApiUrl=https://forgejo.example.com \
+  --set "keda.metricsUrl=https://forgejo.example.com/api/v1/admin/runners/jobs?status=waiting&limit=1" \
   --set keda.triggerAuthenticationRef=act-runner-controller-trigger-auth
 ```
 
@@ -154,9 +154,8 @@ KEDA-based autoscaling scales runners based on the number of pending Forgejo/Git
 |-----|------|---------|-------------|
 | `keda.enabled` | bool | `false` | Enable KEDA for job-aware scaling (ScaledObject or ScaledJob) |
 | `keda.triggerAuthenticationRef` | string | `""` | Name of TriggerAuthentication (from controller chart) |
-| `keda.forgejoApiUrl` | string | `""` | Forgejo/Gitea instance URL for API queries |
-| `keda.forgejoApiScope` | string | `"admin"` | API scope: `admin` or `org` |
-| `keda.forgejoOrg` | string | `""` | Organization name (when scope=org) |
+| `keda.metricsUrl` | string | `""` | Full URL to jobs API endpoint (see examples below) |
+| `keda.valueLocation` | string | `"total_count"` | JSON path in API response holding pending job count |
 | `keda.pollingInterval` | int | `30` | Seconds between KEDA polling cycles |
 | `keda.cooldownPeriod` | int | `300` | Seconds of idle before scaling to minRunners (ScaledObject only) |
 | `keda.unsafeSsl` | bool | `false` | Skip TLS verification (not for production) |
@@ -166,6 +165,14 @@ KEDA-based autoscaling scales runners based on the number of pending Forgejo/Git
 | `keda.scaledJob.scalingStrategy` | string | `""` | KEDA scaling strategy: `default`, `accurate`, or `custom` (ScaledJob only) |
 | `minRunners` | int | `1` | Minimum runner replicas (ScaledObject) or Jobs (ScaledJob) |
 | `maxRunners` | int | `10` | Maximum runner replicas (ScaledObject) or Jobs (ScaledJob) |
+
+**`keda.metricsUrl` examples:**
+
+| Platform | Scope | URL |
+|----------|-------|-----|
+| Forgejo | admin | `https://forgejo.example.com/api/v1/admin/runners/jobs?status=waiting&limit=1` |
+| Gitea | admin | `https://gitea.example.com/api/v1/admin/actions/jobs?status=waiting&limit=1` |
+| Both | org | `https://forgejo.example.com/api/v1/orgs/my-org/actions/jobs?status=waiting&limit=1` |
 
 ### HPA autoscaling (CPU/memory-based)
 

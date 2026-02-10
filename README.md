@@ -127,7 +127,7 @@ This repository includes Helm charts modeled after the [GitHub Actions Runner Co
 ### Prerequisites
 
 - **KEDA** installed in your cluster (for job-aware autoscaling): `helm install keda kedacore/keda -n keda --create-namespace`
-- A **Forgejo/Gitea API token** with admin or org-level access to list action jobs
+- A **Forgejo/Gitea API token** with admin or org-level access to list runner jobs
 
 ### Quick install (with KEDA autoscaling)
 
@@ -152,7 +152,7 @@ helm install my-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token> \
   --set keda.enabled=true \
-  --set keda.forgejoApiUrl=https://forgejo.example.com \
+  --set "keda.metricsUrl=https://forgejo.example.com/api/v1/admin/runners/jobs?status=waiting&limit=1" \
   --set keda.triggerAuthenticationRef=act-runner-controller-trigger-auth
 ```
 

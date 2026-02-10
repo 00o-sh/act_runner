@@ -188,17 +188,17 @@ keda:
   #    This references the Secret containing the Forgejo API token.
   triggerAuthenticationRef: ""
 
-  # -- Forgejo/Gitea instance URL for the KEDA metrics-api trigger.
-  #    Must match the URL configured in the act-runner-controller chart.
-  forgejoApiUrl: ""
+  # -- Full URL to the Forgejo/Gitea jobs API endpoint that KEDA will poll.
+  #    KEDA reads the JSON response and extracts `valueLocation` to determine pending jobs.
+  #
+  #    Forgejo example: https://forgejo.example.com/api/v1/admin/runners/jobs?status=waiting&limit=1
+  #    Gitea example:   https://gitea.example.com/api/v1/admin/actions/jobs?status=waiting&limit=1
+  #    Org-scoped:      https://forgejo.example.com/api/v1/orgs/my-org/actions/jobs?status=waiting&limit=1
+  metricsUrl: ""
 
-  # -- API scope: "admin" or "org"
-  #    admin: queries /api/v1/admin/actions/jobs (requires admin privileges)
-  #    org:   queries /api/v1/orgs/{org}/actions/jobs (requires org access)
-  forgejoApiScope: "admin"
-
-  # -- Organization name (only used when forgejoApiScope=org)
-  forgejoOrg: ""
+  # -- JSON path in the API response that holds the pending job count.
+  #    Default "total_count" works with standard Forgejo/Gitea list endpoints.
+  valueLocation: "total_count"
 
   # -- How often (seconds) KEDA checks for pending jobs
   pollingInterval: 30
