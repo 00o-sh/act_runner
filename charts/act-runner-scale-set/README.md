@@ -17,7 +17,7 @@ Each installation of this chart creates one runner scale set — a group of runn
 ```bash
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners --create-namespace \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token>
@@ -29,7 +29,7 @@ helm install my-runners \
 # First: install the controller chart for TriggerAuthentication
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners --create-namespace \
   --set forgejo.url=https://forgejo.example.com \
   --set forgejo.apiToken=<api-token>
@@ -37,7 +37,7 @@ helm install act-runner-controller \
 # Then: install the scale set with KEDA enabled
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token> \
@@ -53,7 +53,7 @@ For ephemeral runners (one job per pod), KEDA creates a Kubernetes **ScaledJob**
 ```bash
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token> \
@@ -83,7 +83,7 @@ helm install my-runners \
 ```bash
 helm install dind-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<token> \
@@ -95,7 +95,7 @@ helm install dind-runners \
 ```bash
 helm install socket-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<token> \
@@ -258,7 +258,7 @@ kubectl create secret generic my-runner-token \
 
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.name=my-runner-token

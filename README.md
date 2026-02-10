@@ -139,7 +139,7 @@ helm install keda kedacore/keda -n keda --create-namespace
 # 2. Install the controller chart (creates TriggerAuthentication + Secret)
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners --create-namespace \
   --set forgejo.url=https://forgejo.example.com \
   --set forgejo.apiToken=<your-api-token>
@@ -147,7 +147,7 @@ helm install act-runner-controller \
 # 3. Install a runner scale set with KEDA scaling enabled
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token> \
@@ -163,7 +163,7 @@ This creates runners that automatically scale from `minRunners` (default: 1) to 
 ```bash
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners --create-namespace \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token> \
@@ -178,7 +178,7 @@ The scale-set chart supports three container modes:
 # Docker-in-Docker (privileged sidecar)
 helm install dind-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<token> \
@@ -187,7 +187,7 @@ helm install dind-runners \
 # Docker-in-Docker rootless
 helm install rootless-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<token> \
@@ -196,7 +196,7 @@ helm install rootless-runners \
 # Host Docker socket
 helm install socket-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.20 \
+  --version 0.2.21 \
   -n act-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<token> \
