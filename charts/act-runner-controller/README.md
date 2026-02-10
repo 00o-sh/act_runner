@@ -65,7 +65,7 @@ Install this chart **once per cluster** (or once per namespace if you prefer iso
 ```bash
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.21 \
+  --version 0.2.22 \
   -n act-runner-system --create-namespace \
   --set forgejo.url=https://forgejo.example.com \
   --set forgejo.apiToken=<your-api-token>
@@ -81,7 +81,7 @@ kubectl create secret generic forgejo-api-token \
 
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.21 \
+  --version 0.2.22 \
   -n act-runner-system --create-namespace \
   --set forgejo.url=https://forgejo.example.com \
   --set forgejo.apiTokenSecret.name=forgejo-api-token
@@ -92,7 +92,7 @@ Then install runner scale sets with KEDA enabled:
 ```bash
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.21 \
+  --version 0.2.22 \
   -n act-runner-system \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token> \
@@ -214,7 +214,7 @@ Best practice is to install the controller config and runner scale sets in the s
 # Controller config (TriggerAuthentication + Secret)
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.21 \
+  --version 0.2.22 \
   -n act-runners --create-namespace \
   --set forgejo.url=https://forgejo.example.com \
   --set forgejo.apiToken=<token>
@@ -222,7 +222,7 @@ helm install act-runner-controller \
 # Runners (same namespace for TriggerAuthentication access)
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.21 \
+  --version 0.2.22 \
   -n act-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token> \
