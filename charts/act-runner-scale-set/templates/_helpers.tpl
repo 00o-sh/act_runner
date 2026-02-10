@@ -267,9 +267,18 @@ spec:
         {{- with .Values.extraEnv }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+      {{- if eq $containerType "dind-rootless" }}
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+        {{- with .Values.securityContext }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- else }}
       {{- with .Values.securityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- end }}
       {{- with .Values.resources }}
       resources:
