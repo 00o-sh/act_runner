@@ -186,10 +186,6 @@ spec:
       configMap:
         name: {{ include "act-runner-scale-set.configMapName" . }}
     {{- end }}
-    {{- if eq $containerType "dind" }}
-    - name: docker-certs
-      emptyDir: {}
-    {{- end }}
     {{- if and (not $containerType) .Values.hostDockerSocket.enabled }}
     - name: docker-socket
       hostPath:
@@ -209,9 +205,7 @@ spec:
     - name: runner
       image: {{ include "act-runner-scale-set.image" . }}
       imagePullPolicy: {{ .Values.image.pullPolicy }}
-      {{- if eq $containerType "dind" }}
-      command: ["sh", "-c", "until nc -z localhost 2376; do echo 'waiting for docker daemon...'; sleep 2; done && /sbin/tini -- run.sh"]
-      {{- else if ne $containerType "dind-rootless" }}
+      {{- if and (ne $containerType "dind") (ne $containerType "dind-rootless") }}
       command: ["sh", "-c", "/sbin/tini -- run.sh"]
       {{- end }}
       env:
@@ -231,14 +225,6 @@ spec:
         {{- if .Values.ephemeral }}
         - name: GITEA_RUNNER_EPHEMERAL
           value: "true"
-        {{- end }}
-        {{- if eq $containerType "dind" }}
-        - name: DOCKER_HOST
-          value: tcp://localhost:2376
-        - name: DOCKER_CERT_PATH
-          value: /certs/client
-        - name: DOCKER_TLS_VERIFY
-          value: "1"
         {{- end }}
         {{- if .Values.proxy.http }}
         - name: HTTP_PROXY
@@ -261,7 +247,13 @@ spec:
         {{- with .Values.extraEnv }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- if eq $containerType "dind-rootless" }}
+      {{- if eq $containerType "dind" }}
+      securityContext:
+        privileged: true
+        {{- with .Values.securityContext }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- else if eq $containerType "dind-rootless" }}
       securityContext:
         seccompProfile:
           type: Unconfined
@@ -286,10 +278,6 @@ spec:
           mountPath: /etc/act_runner
           readOnly: true
         {{- end }}
-        {{- if eq $containerType "dind" }}
-        - name: docker-certs
-          mountPath: /certs
-        {{- end }}
         {{- if and (not $containerType) .Values.hostDockerSocket.enabled }}
         - name: docker-socket
           mountPath: /var/run/docker.sock
@@ -304,21 +292,6 @@ spec:
         {{- with .Values.extraVolumeMounts }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-
-    {{- if eq $containerType "dind" }}
-    - name: dind
-      image: {{ .Values.containerMode.dindImage }}
-      env:
-        - name: DOCKER_TLS_CERTDIR
-          value: /certs
-      securityContext:
-        privileged: true
-      volumeMounts:
-        - name: docker-certs
-          mountPath: /certs
-        - name: runner-data
-          mountPath: /data
-    {{- end }}
 
   {{- with .Values.nodeSelector }}
   nodeSelector:

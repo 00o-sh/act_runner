@@ -70,13 +70,13 @@ nameOverride: ""
 fullnameOverride: ""
 
 # Container mode configuration
+# The runner image tag is automatically set based on the container mode type:
+#   "" (basic): uses the default image tag
+#   "dind": uses image tag with "-dind" suffix (includes Docker daemon via s6)
+#   "dind-rootless": uses image tag with "-dind-rootless" suffix
 containerMode:
   # -- Container mode type: "dind", "dind-rootless", or "" (basic/host docker socket)
   type: ""
-  # -- Docker-in-Docker image (only for dind/dind-rootless modes)
-  dindImage: "docker:28-dind"
-  # -- Docker-in-Docker rootless image
-  dindRootlessImage: "docker:28-dind-rootless"
 
 # -- Mount the host Docker socket instead of using DinD.
 # Only used when containerMode.type is empty.
