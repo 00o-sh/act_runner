@@ -126,10 +126,73 @@ The API token needs permission to **list action jobs**:
 | `admin` | Site administrator | `GET /api/v1/admin/actions/jobs?status=waiting` |
 | `org` | Organization owner/admin | `GET /api/v1/orgs/{org}/actions/jobs?status=waiting` |
 
-To create an admin API token in Forgejo:
-1. Go to **Site Administration** > **User Accounts** > select your admin user
-2. Go to **Applications** > **Generate New Token**
-3. Grant at least `read:admin` scope
+**Important:** The token must belong to a **site administrator** user account. The `read:admin` scope alone is not sufficient — the user itself must have admin privileges in Forgejo/Gitea.
+
+### Creating the API token
+
+**Option 1: Web UI**
+
+1. Log in to Forgejo/Gitea as a **site administrator**
+2. Go to **Settings** > **Applications** > **Manage Access Tokens**
+3. Enter a name (e.g. `keda-scaler`)
+4. Click **Select permissions** and check **`read:admin`**
+5. Click **Generate Token** — copy the token (shown only once)
+
+**Option 2: Server CLI** (recommended for automation)
+
+```bash
+# Create a dedicated service account (if it doesn't exist)
+forgejo admin user create \
+  --username arc-runner-svc \
+  --password <strong-password> \
+  --email arc-runner-svc@noreply.localhost \
+  --admin
+
+# Generate a scoped token
+forgejo admin user generate-access-token \
+  --username arc-runner-svc \
+  --token-name keda-scaler \
+  --scopes "read:admin" \
+  --raw
+```
+
+For Gitea, replace `forgejo` with `gitea` in the commands above.
+
+The `--raw` flag outputs only the token value, useful for piping into secrets:
+
+```bash
+TOKEN=$(forgejo admin user generate-access-token \
+  --username arc-runner-svc \
+  --token-name keda-scaler \
+  --scopes "read:admin" \
+  --raw)
+
+kubectl create secret generic forgejo-api-token \
+  --from-literal=token="$TOKEN" \
+  -n act-runners
+```
+
+**Option 3: REST API** (bootstrap via basic auth)
+
+```bash
+curl -X POST "https://forgejo.example.com/api/v1/users/arc-runner-svc/tokens" \
+  -H "Content-Type: application/json" \
+  -u "arc-runner-svc:<password>" \
+  -d '{"name":"keda-scaler","scopes":["read:admin"]}'
+```
+
+> **Note:** The `/users/:username/tokens` endpoint only accepts basic auth (username:password), not token auth — by design, since you need credentials to bootstrap a token.
+
+### Available token scopes
+
+| Scope | Description |
+|-------|-------------|
+| `read:admin` | Read-only access to admin endpoints (minimum for KEDA) |
+| `write:admin` | Full admin access (implies read) |
+| `read:organization` | Read org endpoints (for org-scoped scaling) |
+| `all` | Full access to everything (not recommended) |
+
+For org-scoped scaling (`forgejo.scope: org`), use `read:organization` instead of `read:admin`, and the user must be an organization owner/admin rather than a site admin.
 
 ## Architecture: why KEDA?
 
