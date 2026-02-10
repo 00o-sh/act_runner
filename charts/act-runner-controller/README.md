@@ -24,8 +24,9 @@ Install this chart **once per cluster** (or once per namespace if you prefer iso
    helm install keda kedacore/keda -n keda --create-namespace
    ```
 
-2. **Forgejo/Gitea API token** with permission to list action jobs:
-   - **Admin scope**: requires a site-admin API token (reads `/api/v1/admin/actions/jobs`)
+2. **Forgejo/Gitea API token** with permission to list runner jobs:
+   - **Forgejo admin**: requires a site-admin API token (reads `/api/v1/admin/runners/jobs`)
+   - **Gitea admin**: requires a site-admin API token (reads `/api/v1/admin/actions/jobs`)
    - **Org scope**: requires an org-level API token (reads `/api/v1/orgs/{org}/actions/jobs`)
 
 ## How it works
@@ -36,7 +37,7 @@ Install this chart **once per cluster** (or once per namespace if you prefer iso
                                     |   REST API      |
                                     +--------+--------+
                                              |
-                                    GET /api/v1/admin/actions/jobs?status=waiting
+                                    GET /api/v1/admin/runners/jobs?status=waiting
                                              |
                                     +--------v--------+
                                     |   KEDA Operator  |
@@ -64,7 +65,7 @@ Install this chart **once per cluster** (or once per namespace if you prefer iso
 ```bash
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.21 \
+  --version 0.2.22 \
   -n act-runner-system --create-namespace \
   --set forgejo.url=https://forgejo.example.com \
   --set forgejo.apiToken=<your-api-token>
@@ -80,7 +81,7 @@ kubectl create secret generic forgejo-api-token \
 
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.21 \
+  --version 0.2.22 \
   -n act-runner-system --create-namespace \
   --set forgejo.url=https://forgejo.example.com \
   --set forgejo.apiTokenSecret.name=forgejo-api-token
@@ -91,12 +92,12 @@ Then install runner scale sets with KEDA enabled:
 ```bash
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.21 \
+  --version 0.2.22 \
   -n act-runner-system \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token> \
   --set keda.enabled=true \
-  --set keda.forgejoApiUrl=https://forgejo.example.com \
+  --set keda.metricsUrl=https://forgejo.example.com/api/v1/admin/runners/jobs?status=waiting&limit=1 \
   --set keda.triggerAuthenticationRef=act-runner-controller-trigger-auth
 ```
 
@@ -119,12 +120,13 @@ helm install my-runners \
 
 ## API token permissions
 
-The API token needs permission to **list action jobs**:
+The API token needs permission to **list runner jobs**:
 
-| Scope | Required Permission | API Endpoint |
-|-------|-------------------|--------------|
-| `admin` | Site administrator | `GET /api/v1/admin/actions/jobs?status=waiting` |
-| `org` | Organization owner/admin | `GET /api/v1/orgs/{org}/actions/jobs?status=waiting` |
+| Platform | Scope | Required Permission | API Endpoint |
+|----------|-------|-------------------|--------------|
+| Forgejo | `admin` | Site administrator | `GET /api/v1/admin/runners/jobs?status=waiting` |
+| Gitea | `admin` | Site administrator | `GET /api/v1/admin/actions/jobs?status=waiting` |
+| Both | `org` | Organization owner/admin | `GET /api/v1/orgs/{org}/actions/jobs?status=waiting` |
 
 **Important:** The token must belong to a **site administrator** user account. The `read:admin` scope alone is not sufficient — the user itself must have admin privileges in Forgejo/Gitea.
 
@@ -212,7 +214,7 @@ Best practice is to install the controller config and runner scale sets in the s
 # Controller config (TriggerAuthentication + Secret)
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.21 \
+  --version 0.2.22 \
   -n act-runners --create-namespace \
   --set forgejo.url=https://forgejo.example.com \
   --set forgejo.apiToken=<token>
@@ -220,12 +222,12 @@ helm install act-runner-controller \
 # Runners (same namespace for TriggerAuthentication access)
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.21 \
+  --version 0.2.22 \
   -n act-runners \
   --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token> \
   --set keda.enabled=true \
-  --set keda.forgejoApiUrl=https://forgejo.example.com \
+  --set keda.metricsUrl=https://forgejo.example.com/api/v1/admin/runners/jobs?status=waiting&limit=1 \
   --set keda.triggerAuthenticationRef=act-runner-controller-trigger-auth
 ```
 
@@ -262,8 +264,13 @@ helm upgrade act-runner-controller \
 
 4. Test the Forgejo API manually:
    ```bash
+   # Forgejo
    curl -H "Authorization: token <your-token>" \
-     https://forgejo.example.com/api/v1/admin/actions/jobs?status=waiting&limit=1
+     https://forgejo.example.com/api/v1/admin/runners/jobs?status=waiting&limit=1
+
+   # Gitea
+   curl -H "Authorization: token <your-token>" \
+     https://gitea.example.com/api/v1/admin/actions/jobs?status=waiting&limit=1
    ```
    Expected response includes `"total_count": <number>`.
 

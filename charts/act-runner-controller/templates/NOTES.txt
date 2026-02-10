@@ -22,8 +22,7 @@ Next steps:
        --set giteaConfigSecret.token=<registration-token> \
        --set keda.enabled=true \
        --set keda.triggerAuthenticationRef={{ include "act-runner-controller.triggerAuthName" . }} \
-       --set keda.forgejoApiUrl={{ .Values.forgejo.url | default "https://forgejo.example.com" }} \
-       --set keda.forgejoApiScope={{ .Values.forgejo.scope | default "admin" }}
+       --set "keda.metricsUrl={{ .Values.forgejo.url | default "https://forgejo.example.com" }}/api/v1/admin/runners/jobs?status=waiting&limit=1"
 
   2. Verify KEDA ScaledObject:
 

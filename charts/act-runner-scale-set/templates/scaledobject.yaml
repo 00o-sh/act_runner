@@ -27,18 +27,13 @@ spec:
   triggers:
     - type: metrics-api
       metadata:
-        {{- $url := .Values.keda.forgejoApiUrl | default "" | trimSuffix "/" }}
-        {{- if eq (.Values.keda.forgejoApiScope | default "admin") "org" }}
-        url: "{{ $url }}/api/v1/orgs/{{ .Values.keda.forgejoOrg | default "" }}/actions/jobs?status=waiting&limit=1"
-        {{- else }}
-        url: "{{ $url }}/api/v1/admin/actions/jobs?status=waiting&limit=1"
-        {{- end }}
-        valueLocation: "total_count"
+        url: {{ .Values.keda.metricsUrl | quote }}
+        valueLocation: {{ .Values.keda.valueLocation | default "total_count" | quote }}
         targetValue: "1"
         authMode: "bearer"
         {{- if .Values.keda.unsafeSsl }}
         unsafeSsl: "true"
         {{- end }}
       authenticationRef:
-        name: {{ .Values.keda.triggerAuthenticationRef | default "" }}
+        name: {{ .Values.keda.triggerAuthenticationRef | quote }}
 {{- end }}
