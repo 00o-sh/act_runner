@@ -1,9 +1,12 @@
 apiVersion: v2
 name: act-runner-controller
-description: Job-aware autoscaler for act_runner scale sets on Kubernetes
+description: >-
+  KEDA-based autoscaler configuration for act_runner scale sets on Kubernetes.
+  Provides TriggerAuthentication and shared secrets for job-aware scaling
+  of Forgejo/Gitea Actions runners via KEDA.
 type: application
-version: 0.2.18
-appVersion: "0.2.18"
+version: 0.2.19
+appVersion: "0.2.19"
 home: https://github.com/00o-sh/act_runner
 sources:
   - https://github.com/00o-sh/act_runner
@@ -16,4 +19,5 @@ keywords:
   - ci
   - cd
   - autoscaler
+  - keda
 icon: https://gitea.com/assets/img/logo.svg

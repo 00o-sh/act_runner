@@ -1,27 +1,34 @@
-act-runner-controller has been installed.
+act-runner-controller (KEDA configuration) has been installed.
 
-Namespace: {{ .Release.Namespace }}
-Service Account: {{ include "act-runner-controller.serviceAccountName" . }}
-Forgejo URL: {{ .Values.forgejo.url }}
-Reconcile Interval: {{ .Values.reconcileInterval | default 30 }}s
-Scale-Down Delay: {{ .Values.scaleDownDelay | default 300 }}s
+Namespace:              {{ .Release.Namespace }}
+Forgejo URL:            {{ .Values.forgejo.url | default "(not set)" }}
+API Scope:              {{ .Values.forgejo.scope | default "admin" }}
+TriggerAuthentication:  {{ include "act-runner-controller.triggerAuthName" . }}
+API Token Secret:       {{ include "act-runner-controller.apiTokenSecretName" . }}
 
-The controller will automatically scale runner Deployments/StatefulSets
-labeled with 'app.kubernetes.io/managed-by: act-runner-controller'.
+This chart provides KEDA TriggerAuthentication for Forgejo/Gitea job-aware
+autoscaling. No pods are deployed — KEDA handles the scaling logic.
+
+Prerequisites:
+  - KEDA must be installed: https://keda.sh/docs/latest/deploy/
 
 Next steps:
-  1. Install one or more runner scale sets:
+  1. Install one or more runner scale sets with KEDA scaling enabled:
 
      helm install my-runners \
        oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-       -n act-runners --create-namespace \
+       -n {{ .Release.Namespace }} --create-namespace \
        --set giteaConfigUrl={{ .Values.forgejo.url | default "https://forgejo.example.com" }} \
-       --set giteaConfigSecret.token=<registration-token>
+       --set giteaConfigSecret.token=<registration-token> \
+       --set keda.enabled=true \
+       --set keda.triggerAuthenticationRef={{ include "act-runner-controller.triggerAuthName" . }} \
+       --set keda.forgejoApiUrl={{ .Values.forgejo.url | default "https://forgejo.example.com" }} \
+       --set keda.forgejoApiScope={{ .Values.forgejo.scope | default "admin" }}
 
-  2. Verify the controller is running:
+  2. Verify KEDA ScaledObject:
 
-     kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+     kubectl get scaledobject -n {{ .Release.Namespace }}
 
-  3. Check controller logs:
+  3. Check KEDA operator logs:
 
-     kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -f
+     kubectl logs -n keda -l app=keda-operator -f

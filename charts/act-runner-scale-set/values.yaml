@@ -172,6 +172,41 @@ giteaServerTLS:
       name: ""
       key: "ca.crt"
 
+# KEDA-based job-aware autoscaling configuration.
+# Requires KEDA to be installed in the cluster and the act-runner-controller
+# chart to provide TriggerAuthentication.
+# See https://keda.sh/docs/latest/deploy/ for KEDA installation.
+keda:
+  # -- Enable KEDA ScaledObject for job-aware autoscaling.
+  #    When enabled, KEDA scales the runner Deployment/StatefulSet based on
+  #    pending Forgejo/Gitea workflow jobs. This replaces HPA-based autoscaling.
+  enabled: false
+
+  # -- Name of the KEDA TriggerAuthentication resource (created by act-runner-controller chart).
+  #    This references the Secret containing the Forgejo API token.
+  triggerAuthenticationRef: ""
+
+  # -- Forgejo/Gitea instance URL for the KEDA metrics-api trigger.
+  #    Must match the URL configured in the act-runner-controller chart.
+  forgejoApiUrl: ""
+
+  # -- API scope: "admin" or "org"
+  #    admin: queries /api/v1/admin/actions/jobs (requires admin privileges)
+  #    org:   queries /api/v1/orgs/{org}/actions/jobs (requires org access)
+  forgejoApiScope: "admin"
+
+  # -- Organization name (only used when forgejoApiScope=org)
+  forgejoOrg: ""
+
+  # -- How often (seconds) KEDA checks for pending jobs
+  pollingInterval: 30
+
+  # -- How long (seconds) to wait after last trigger before scaling to minRunners
+  cooldownPeriod: 300
+
+  # -- Skip TLS verification for the Forgejo API (not recommended for production)
+  unsafeSsl: false
+
 # -- HTTP proxy configuration
 proxy:
   http: ""

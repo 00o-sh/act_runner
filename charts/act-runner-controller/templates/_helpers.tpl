@@ -49,33 +49,13 @@ Selector labels
 {{- define "act-runner-controller.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "act-runner-controller.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: controller
+app.kubernetes.io/component: autoscaler-config
 {{- end }}
 
 {{/*
-Create the name of the service account to use
-*/}}
-{{- define "act-runner-controller.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "act-runner-controller.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
-{{- end }}
-
-{{/*
-Controller image reference — uses the -controller tagged variant
-*/}}
-{{- define "act-runner-controller.image" -}}
-{{- if .Values.image.tag }}
-{{- printf "%s:%s" .Values.image.repository .Values.image.tag }}
-{{- else }}
-{{- printf "%s:%s-controller" .Values.image.repository .Chart.AppVersion }}
-{{- end }}
-{{- end }}
-
-{{/*
-Name of the Secret holding the Forgejo API token
+Name of the Secret holding the Forgejo API token.
+If the user provides a pre-existing secret name, use that.
+Otherwise, generate one from the release fullname.
 */}}
 {{- define "act-runner-controller.apiTokenSecretName" -}}
 {{- if .Values.forgejo.apiTokenSecret.name }}
@@ -86,10 +66,35 @@ Name of the Secret holding the Forgejo API token
 {{- end }}
 
 {{/*
-Whether the chart should create the API token Secret
+Whether the chart should create the API token Secret.
+True when forgejo.apiToken is set and no pre-existing secret name is given.
 */}}
 {{- define "act-runner-controller.createApiTokenSecret" -}}
 {{- if and .Values.forgejo.apiToken (not .Values.forgejo.apiTokenSecret.name) }}
 {{- true }}
 {{- end }}
+{{- end }}
+
+{{/*
+Name of the KEDA TriggerAuthentication resource.
+*/}}
+{{- define "act-runner-controller.triggerAuthName" -}}
+{{- if .Values.triggerAuthentication.name }}
+{{- .Values.triggerAuthentication.name }}
+{{- else }}
+{{- printf "%s-trigger-auth" (include "act-runner-controller.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Forgejo jobs API URL based on scope (admin vs org).
+Used by the scale-set chart's ScaledObject to configure the KEDA metrics-api trigger.
+*/}}
+{{- define "act-runner-controller.jobsApiUrl" -}}
+{{- $url := .Values.forgejo.url | default "" | trimSuffix "/" -}}
+{{- if eq (.Values.forgejo.scope | default "admin") "org" -}}
+{{- printf "%s/api/v1/orgs/%s/actions/jobs?status=waiting&limit=1" $url (.Values.forgejo.org | default "") }}
+{{- else -}}
+{{- printf "%s/api/v1/admin/actions/jobs?status=waiting&limit=1" $url }}
+{{- end -}}
 {{- end }}

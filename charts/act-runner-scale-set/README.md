@@ -4,20 +4,52 @@ A configurable [act_runner](https://gitea.com/gitea/act_runner) scale set for Fo
 
 ## Overview
 
-Each installation of this chart creates one runner scale set — a group of runner pods that register with your Gitea instance and pick up workflow jobs. Multiple installations can coexist in the same namespace with different labels, capacity, or container modes.
+Each installation of this chart creates one runner scale set — a group of runner pods that register with your Forgejo/Gitea instance and pick up workflow jobs. Multiple installations can coexist in the same namespace with different labels, capacity, or container modes.
 
-**Prerequisites:** Install [`act-runner-controller`](../act-runner-controller/) first.
+**Prerequisites:**
+- Install [`act-runner-controller`](../act-runner-controller/) first (provides KEDA TriggerAuthentication)
+- [KEDA](https://keda.sh) must be installed for job-aware autoscaling
 
 ## Install
+
+### Basic (static replicas)
 
 ```bash
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.18 \
+  --version 0.2.19 \
   -n act-runners --create-namespace \
-  --set giteaConfigUrl=https://gitea.example.com \
+  --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<registration-token>
 ```
+
+### With KEDA job-aware autoscaling (recommended)
+
+```bash
+# First: install the controller chart for TriggerAuthentication
+helm install act-runner-controller \
+  oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
+  --version 0.2.19 \
+  -n act-runners --create-namespace \
+  --set forgejo.url=https://forgejo.example.com \
+  --set forgejo.apiToken=<api-token>
+
+# Then: install the scale set with KEDA enabled
+helm install my-runners \
+  oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
+  --version 0.2.19 \
+  -n act-runners \
+  --set giteaConfigUrl=https://forgejo.example.com \
+  --set giteaConfigSecret.token=<registration-token> \
+  --set keda.enabled=true \
+  --set keda.forgejoApiUrl=https://forgejo.example.com \
+  --set keda.triggerAuthenticationRef=act-runner-controller-trigger-auth
+```
+
+When `keda.enabled=true`, a KEDA `ScaledObject` is created that:
+- Polls the Forgejo REST API for pending jobs every `keda.pollingInterval` seconds
+- Scales the runner Deployment/StatefulSet from `minRunners` to `maxRunners` based on `total_count` of waiting jobs
+- Scales back to `minRunners` after `keda.cooldownPeriod` seconds of inactivity
 
 ## Container modes
 
@@ -25,16 +57,16 @@ helm install my-runners \
 |------|---------------------|-------------|
 | **Basic** | `""` (default) | Runner only. Mount host Docker socket or run without Docker. |
 | **DinD** | `"dind"` | Runner + Docker-in-Docker sidecar. Requires `privileged: true`. |
-| **DinD Rootless** | `"dind-rootless"` | Rootless Docker-in-Docker embedded in the runner image. Requires `privileged: true`. |
+| **DinD Rootless** | `"dind-rootless"` | Rootless Docker-in-Docker embedded in the runner image. |
 
 ### DinD example
 
 ```bash
 helm install dind-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.18 \
+  --version 0.2.19 \
   -n act-runners \
-  --set giteaConfigUrl=https://gitea.example.com \
+  --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<token> \
   --set containerMode.type=dind
 ```
@@ -44,9 +76,9 @@ helm install dind-runners \
 ```bash
 helm install socket-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.18 \
+  --version 0.2.19 \
   -n act-runners \
-  --set giteaConfigUrl=https://gitea.example.com \
+  --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<token> \
   --set hostDockerSocket.enabled=true
 ```
@@ -57,8 +89,8 @@ helm install socket-runners \
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `giteaConfigUrl` | string | Gitea instance URL (e.g. `https://gitea.example.com`) |
-| `giteaConfigSecret.token` | string | Registration token from Gitea admin panel |
+| `giteaConfigUrl` | string | Forgejo/Gitea instance URL (e.g. `https://forgejo.example.com`) |
+| `giteaConfigSecret.token` | string | Registration token from admin panel |
 
 Or reference a pre-existing Secret:
 
@@ -72,7 +104,7 @@ Or reference a pre-existing Secret:
 |-----|------|---------|-------------|
 | `runnerScaleSetName` | string | Release name | Runner name prefix / `runs-on` label |
 | `runnerLabels` | string | `""` | Comma-separated runner labels (e.g. `ubuntu-latest:docker://node:20`) |
-| `replicas` | int | `1` | Number of runner replicas |
+| `replicas` | int | `1` | Number of runner replicas (ignored when KEDA or HPA is enabled) |
 | `ephemeral` | bool | `false` | Runner exits after one job |
 | `runnerConfig` | string | `""` | Inline runner config YAML (see `act_runner generate-config`) |
 
@@ -95,14 +127,29 @@ Or reference a pre-existing Secret:
 | `hostDockerSocket.enabled` | bool | `false` | Mount host Docker socket (basic mode only) |
 | `hostDockerSocket.path` | string | `/var/run/docker.sock` | Host socket path |
 
-### Autoscaling
+### KEDA autoscaling (job-aware)
 
-The `act-runner-controller` provides **job-aware autoscaling** — it reads `minRunners` and `maxRunners` from annotations on the Deployment/StatefulSet and scales replicas based on pending Forgejo jobs. The HPA values below are for CPU/memory-based scaling as a fallback.
+KEDA-based autoscaling scales runners based on the number of pending Forgejo/Gitea workflow jobs. This requires [KEDA](https://keda.sh) to be installed and the `act-runner-controller` chart to provide a `TriggerAuthentication`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `minRunners` | int | `1` | Min runner replicas (used by controller) |
-| `maxRunners` | int | `10` | Max runner replicas (used by controller) |
+| `keda.enabled` | bool | `false` | Enable KEDA ScaledObject for job-aware scaling |
+| `keda.triggerAuthenticationRef` | string | `""` | Name of TriggerAuthentication (from controller chart) |
+| `keda.forgejoApiUrl` | string | `""` | Forgejo/Gitea instance URL for API queries |
+| `keda.forgejoApiScope` | string | `"admin"` | API scope: `admin` or `org` |
+| `keda.forgejoOrg` | string | `""` | Organization name (when scope=org) |
+| `keda.pollingInterval` | int | `30` | Seconds between KEDA polling cycles |
+| `keda.cooldownPeriod` | int | `300` | Seconds of idle before scaling to minRunners |
+| `keda.unsafeSsl` | bool | `false` | Skip TLS verification (not for production) |
+| `minRunners` | int | `1` | Minimum runner replicas |
+| `maxRunners` | int | `10` | Maximum runner replicas |
+
+### HPA autoscaling (CPU/memory-based)
+
+Use this as a fallback when KEDA is not available. Not recommended for job-aware scaling.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
 | `autoscaling.enabled` | bool | `false` | Enable HPA (CPU/memory-based) |
 | `autoscaling.minReplicas` | int | `1` | Minimum replicas (HPA) |
 | `autoscaling.maxReplicas` | int | `10` | Maximum replicas (HPA) |
@@ -188,9 +235,9 @@ kubectl create secret generic my-runner-token \
 
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.18 \
+  --version 0.2.19 \
   -n act-runners \
-  --set giteaConfigUrl=https://gitea.example.com \
+  --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.name=my-runner-token
 ```
 
@@ -209,4 +256,4 @@ helm upgrade my-runners \
 helm uninstall my-runners -n act-runners
 ```
 
-Runner pods will be terminated and de-registered from Gitea on shutdown.
+Runner pods will be terminated and de-registered from Forgejo/Gitea on shutdown.

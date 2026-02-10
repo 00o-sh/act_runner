@@ -2,8 +2,8 @@ apiVersion: v2
 name: act-runner-scale-set
 description: A configurable act_runner scale set for Forgejo/Gitea Actions on Kubernetes
 type: application
-version: 0.2.18
-appVersion: "0.2.18"
+version: 0.2.19
+appVersion: "0.2.19"
 home: https://github.com/00o-sh/act_runner
 sources:
   - https://github.com/00o-sh/act_runner

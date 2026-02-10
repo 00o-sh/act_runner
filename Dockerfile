@@ -67,15 +67,3 @@ COPY scripts/run.sh /usr/local/bin/run.sh
 VOLUME /data
 
 ENTRYPOINT ["/sbin/tini","--","run.sh"]
-
-### CONTROLLER VARIANT
-#
-# Job-aware autoscaler — no act_runner binary needed, just curl + jq
-# to talk to the Kubernetes API and Forgejo/Gitea REST API.
-#
-FROM alpine AS controller
-RUN apk add --no-cache tini bash curl jq
-
-COPY scripts/controller.sh /usr/local/bin/controller.sh
-
-ENTRYPOINT ["/sbin/tini","--","controller.sh"]
