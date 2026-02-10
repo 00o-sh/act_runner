@@ -3,7 +3,15 @@ act-runner-scale-set "{{ include "act-runner-scale-set.runnerScaleSetName" . }}"
 Namespace: {{ .Release.Namespace }}
 Gitea URL: {{ .Values.giteaConfigUrl }}
 Container Mode: {{ .Values.containerMode.type | default "basic" }}
+{{- if .Values.keda.enabled }}
+Autoscaling: KEDA (job-aware)
+  Min Runners: {{ .Values.minRunners | default 1 }}
+  Max Runners: {{ .Values.maxRunners | default 10 }}
+  Polling:     {{ .Values.keda.pollingInterval | default 30 }}s
+  Cooldown:    {{ .Values.keda.cooldownPeriod | default 300 }}s
+{{- else }}
 Replicas: {{ .Values.replicas }}
+{{- end }}
 {{- if .Values.ephemeral }}
 Mode: Ephemeral (runner exits after one job)
 {{- end }}
@@ -13,3 +21,8 @@ Verify the runners are registered:
 
 Check runner logs:
   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -c runner -f
+{{- if .Values.keda.enabled }}
+
+Check KEDA ScaledObject status:
+  kubectl get scaledobject {{ include "act-runner-scale-set.fullname" . }} -n {{ .Release.Namespace }}
+{{- end }}

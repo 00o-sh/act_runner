@@ -1,59 +1,17 @@
 # act-runner-controller values
-# Job-aware autoscaler for act_runner scale sets.
-# Polls the Forgejo/Gitea REST API for pending jobs and scales
-# runner Deployments/StatefulSets up or down accordingly.
-
-# -- Number of controller replicas
-replicaCount: 1
-
-image:
-  # -- Controller image repository
-  repository: ghcr.io/00o-sh/act_runner
-  # -- Image pull policy
-  pullPolicy: IfNotPresent
-  # -- Image tag override (defaults to appVersion-controller)
-  tag: ""
-
-# -- Image pull secrets for private registries
-imagePullSecrets: []
+#
+# This chart provides KEDA-based autoscaling configuration for act_runner
+# scale sets. It creates a TriggerAuthentication resource and an optional
+# Secret for the Forgejo/Gitea API token. The actual ScaledObject is
+# created by the act-runner-scale-set chart when keda.enabled=true.
+#
+# PREREQUISITE: KEDA must be installed in your cluster.
+#   See https://keda.sh/docs/latest/deploy/
 
 # -- Override the chart name
 nameOverride: ""
 # -- Override the full release name
 fullnameOverride: ""
-
-# Forgejo / Gitea instance configuration
-forgejo:
-  # -- (required) Forgejo instance URL (e.g. https://forgejo.example.com)
-  url: ""
-  # -- API token with admin or org-level permissions to read runners and jobs.
-  # If set (and apiTokenSecret.name is empty), the chart creates a Secret for you.
-  apiToken: ""
-  # -- Reference a pre-existing Secret instead of having the chart create one.
-  apiTokenSecret:
-    # -- Name of the pre-existing Secret
-    name: ""
-    # -- Key inside the Secret that holds the API token
-    key: "token"
-  # -- API scope: "admin" uses /api/v1/admin/actions/* endpoints,
-  # "org" uses /api/v1/orgs/{org}/actions/* endpoints.
-  scope: "admin"
-  # -- Forgejo organization name (only used when scope=org)
-  org: ""
-
-# -- How often (seconds) the controller reconciles runner replicas
-reconcileInterval: 30
-
-# -- How long (seconds) runners must be idle before scaling down
-scaleDownDelay: 300
-
-serviceAccount:
-  # -- Create a service account for the controller
-  create: true
-  # -- Annotations for the service account
-  annotations: {}
-  # -- Service account name override
-  name: ""
 
 # -- Additional labels to add to all resources
 additionalLabels: {}
@@ -61,38 +19,35 @@ additionalLabels: {}
 # -- Additional annotations to add to all resources
 additionalAnnotations: {}
 
-# -- Pod-level annotations
-podAnnotations: {}
+# Forgejo / Gitea instance configuration
+forgejo:
+  # -- (required) Forgejo/Gitea instance URL (e.g. https://forgejo.example.com)
+  url: ""
 
-# -- Pod-level security context
-podSecurityContext: {}
+  # -- API token with permissions to read action jobs.
+  #    Admin scope: needs admin API access (reads /api/v1/admin/actions/jobs)
+  #    Org scope: needs org-level access (reads /api/v1/orgs/{org}/actions/jobs)
+  #    If set (and apiTokenSecret.name is empty), the chart creates a Secret.
+  apiToken: ""
 
-# -- Container-level security context
-securityContext: {}
+  # -- Reference a pre-existing Secret instead of creating one.
+  apiTokenSecret:
+    # -- Name of the pre-existing Secret
+    name: ""
+    # -- Key inside the Secret that holds the API token
+    key: "token"
 
-resources: {}
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 50m
-  #   memory: 64Mi
+  # -- API scope: "admin" or "org"
+  #    admin: uses /api/v1/admin/actions/jobs (requires admin privileges)
+  #    org:   uses /api/v1/orgs/{org}/actions/jobs (requires org-level access)
+  scope: "admin"
 
-# -- Node selector for controller pods
-nodeSelector: {}
+  # -- Organization name (only used when scope=org)
+  org: ""
 
-# -- Tolerations for controller pods
-tolerations: []
-
-# -- Affinity rules for controller pods
-affinity: {}
-
-# -- Priority class for controller pods
-priorityClassName: ""
-
-# RBAC configuration
-rbac:
-  # -- Create RBAC resources (ClusterRole, ClusterRoleBinding)
+# KEDA TriggerAuthentication configuration
+triggerAuthentication:
+  # -- Create a KEDA TriggerAuthentication resource
   create: true
-  # -- Watch all namespaces or only the release namespace
-  watchAllNamespaces: true
+  # -- Name override for the TriggerAuthentication
+  name: ""

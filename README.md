@@ -117,31 +117,57 @@ Check out the [examples](examples) directory for sample deployment types.
 
 ## Helm Charts
 
-This repository includes Helm charts modeled after the [GitHub Actions Runner Controller (ARC)](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners-with-actions-runner-controller) pattern:
+This repository includes Helm charts modeled after the [GitHub Actions Runner Controller (ARC)](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners-with-actions-runner-controller) pattern, with **job-aware autoscaling powered by [KEDA](https://keda.sh)**:
 
-| Chart | OCI Reference |
-|-------|---------------|
-| [act-runner-controller](charts/act-runner-controller/) | `oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller` |
-| [act-runner-scale-set](charts/act-runner-scale-set/) | `oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set` |
+| Chart | Description | OCI Reference |
+|-------|-------------|---------------|
+| [act-runner-controller](charts/act-runner-controller/) | KEDA TriggerAuthentication + Forgejo API Secret | `oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller` |
+| [act-runner-scale-set](charts/act-runner-scale-set/) | Runner pods + optional KEDA ScaledObject | `oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set` |
 
-### Quick install
+### Prerequisites
+
+- **KEDA** installed in your cluster (for job-aware autoscaling): `helm install keda kedacore/keda -n keda --create-namespace`
+- A **Forgejo/Gitea API token** with admin or org-level access to list action jobs
+
+### Quick install (with KEDA autoscaling)
 
 ```bash
-# 1. Install the controller (once per cluster)
+# 1. Install KEDA (if not already installed)
+helm repo add kedacore https://kedacore.github.io/charts
+helm install keda kedacore/keda -n keda --create-namespace
+
+# 2. Install the controller chart (creates TriggerAuthentication + Secret)
 helm install act-runner-controller \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-controller \
-  --version 0.2.18 \
-  -n act-runner-system --create-namespace \
+  --version 0.2.19 \
+  -n act-runners --create-namespace \
   --set forgejo.url=https://forgejo.example.com \
   --set forgejo.apiToken=<your-api-token>
 
-# 2. Install a runner scale set (once per runner group)
+# 3. Install a runner scale set with KEDA scaling enabled
 helm install my-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.18 \
+  --version 0.2.19 \
+  -n act-runners \
+  --set giteaConfigUrl=https://forgejo.example.com \
+  --set giteaConfigSecret.token=<registration-token> \
+  --set keda.enabled=true \
+  --set keda.forgejoApiUrl=https://forgejo.example.com \
+  --set keda.triggerAuthenticationRef=act-runner-controller-trigger-auth
+```
+
+This creates runners that automatically scale from `minRunners` (default: 1) to `maxRunners` (default: 10) based on the number of pending workflow jobs in Forgejo.
+
+### Quick install (static replicas, no KEDA)
+
+```bash
+helm install my-runners \
+  oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
+  --version 0.2.19 \
   -n act-runners --create-namespace \
-  --set giteaConfigUrl=https://gitea.example.com \
-  --set giteaConfigSecret.token=<registration-token>
+  --set giteaConfigUrl=https://forgejo.example.com \
+  --set giteaConfigSecret.token=<registration-token> \
+  --set replicas=3
 ```
 
 ### Container modes
@@ -152,27 +178,27 @@ The scale-set chart supports three container modes:
 # Docker-in-Docker (privileged sidecar)
 helm install dind-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.18 \
+  --version 0.2.19 \
   -n act-runners \
-  --set giteaConfigUrl=https://gitea.example.com \
+  --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<token> \
   --set containerMode.type=dind
 
 # Docker-in-Docker rootless
 helm install rootless-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.18 \
+  --version 0.2.19 \
   -n act-runners \
-  --set giteaConfigUrl=https://gitea.example.com \
+  --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<token> \
   --set containerMode.type=dind-rootless
 
 # Host Docker socket
 helm install socket-runners \
   oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
-  --version 0.2.18 \
+  --version 0.2.19 \
   -n act-runners \
-  --set giteaConfigUrl=https://gitea.example.com \
+  --set giteaConfigUrl=https://forgejo.example.com \
   --set giteaConfigSecret.token=<token> \
   --set hostDockerSocket.enabled=true
 ```

@@ -1,0 +1,18 @@
+{{- if .Values.triggerAuthentication.create }}
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "act-runner-controller.triggerAuthName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "act-runner-controller.labels" . | nindent 4 }}
+  {{- with .Values.additionalAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  secretTargetRef:
+    - parameter: token
+      name: {{ include "act-runner-controller.apiTokenSecretName" . }}
+      key: {{ .Values.forgejo.apiTokenSecret.key | default "token" }}
+{{- end }}
