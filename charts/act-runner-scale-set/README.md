@@ -46,10 +46,29 @@ helm install my-runners \
   --set keda.triggerAuthenticationRef=act-runner-controller-trigger-auth
 ```
 
-When `keda.enabled=true`, a KEDA `ScaledObject` is created that:
-- Polls the Forgejo REST API for pending jobs every `keda.pollingInterval` seconds
-- Scales the runner Deployment/StatefulSet from `minRunners` to `maxRunners` based on `total_count` of waiting jobs
-- Scales back to `minRunners` after `keda.cooldownPeriod` seconds of inactivity
+### With KEDA ephemeral runners (ScaledJob)
+
+For ephemeral runners (one job per pod), KEDA creates a Kubernetes **ScaledJob** instead of scaling a Deployment. Each pending Forgejo workflow job spawns a fresh runner pod that registers, runs the job, and exits cleanly.
+
+```bash
+helm install my-runners \
+  oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set \
+  --version 0.2.19 \
+  -n act-runners \
+  --set giteaConfigUrl=https://forgejo.example.com \
+  --set giteaConfigSecret.token=<registration-token> \
+  --set ephemeral=true \
+  --set keda.enabled=true \
+  --set keda.forgejoApiUrl=https://forgejo.example.com \
+  --set keda.triggerAuthenticationRef=act-runner-controller-trigger-auth
+```
+
+### KEDA scaling modes
+
+| Mode | Condition | Behavior |
+|------|-----------|----------|
+| **ScaledObject** | `keda.enabled=true`, `ephemeral=false` | Scales Deployment/StatefulSet replicas between `minRunners` and `maxRunners`. Runners are long-lived and process multiple jobs. Scales down after `cooldownPeriod`. |
+| **ScaledJob** | `keda.enabled=true`, `ephemeral=true` | Creates one Kubernetes Job per pending workflow job. Each runner pod registers, runs one job, and exits. No Deployment is created. Jobs are cleaned up after `ttlSecondsAfterFinished`. |
 
 ## Container modes
 
@@ -133,16 +152,20 @@ KEDA-based autoscaling scales runners based on the number of pending Forgejo/Git
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `keda.enabled` | bool | `false` | Enable KEDA ScaledObject for job-aware scaling |
+| `keda.enabled` | bool | `false` | Enable KEDA for job-aware scaling (ScaledObject or ScaledJob) |
 | `keda.triggerAuthenticationRef` | string | `""` | Name of TriggerAuthentication (from controller chart) |
 | `keda.forgejoApiUrl` | string | `""` | Forgejo/Gitea instance URL for API queries |
 | `keda.forgejoApiScope` | string | `"admin"` | API scope: `admin` or `org` |
 | `keda.forgejoOrg` | string | `""` | Organization name (when scope=org) |
 | `keda.pollingInterval` | int | `30` | Seconds between KEDA polling cycles |
-| `keda.cooldownPeriod` | int | `300` | Seconds of idle before scaling to minRunners |
+| `keda.cooldownPeriod` | int | `300` | Seconds of idle before scaling to minRunners (ScaledObject only) |
 | `keda.unsafeSsl` | bool | `false` | Skip TLS verification (not for production) |
-| `minRunners` | int | `1` | Minimum runner replicas |
-| `maxRunners` | int | `10` | Maximum runner replicas |
+| `keda.scaledJob.ttlSecondsAfterFinished` | int | `300` | Cleanup delay for completed Jobs (ScaledJob only) |
+| `keda.scaledJob.successfulJobsHistoryLimit` | int | `5` | Successful Jobs to retain (ScaledJob only) |
+| `keda.scaledJob.failedJobsHistoryLimit` | int | `5` | Failed Jobs to retain (ScaledJob only) |
+| `keda.scaledJob.scalingStrategy` | string | `""` | KEDA scaling strategy: `default`, `accurate`, or `custom` (ScaledJob only) |
+| `minRunners` | int | `1` | Minimum runner replicas (ScaledObject) or Jobs (ScaledJob) |
+| `maxRunners` | int | `10` | Maximum runner replicas (ScaledObject) or Jobs (ScaledJob) |
 
 ### HPA autoscaling (CPU/memory-based)
 

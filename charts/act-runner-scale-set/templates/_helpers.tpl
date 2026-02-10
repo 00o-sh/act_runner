@@ -124,3 +124,209 @@ Config map name for runner config
 {{- define "act-runner-scale-set.configMapName" -}}
 {{- printf "%s-config" (include "act-runner-scale-set.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
+
+{{/*
+Whether to use a KEDA ScaledJob instead of Deployment/StatefulSet + ScaledObject.
+True when KEDA is enabled and the runner is ephemeral (one job per pod).
+*/}}
+{{- define "act-runner-scale-set.useScaledJob" -}}
+{{- if and .Values.keda.enabled .Values.ephemeral -}}
+{{- true -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Shared pod template for both Deployment/StatefulSet and ScaledJob.
+Outputs a complete PodTemplateSpec (metadata + spec) that callers
+embed at the appropriate indentation level.
+*/}}
+{{- define "act-runner-scale-set.runnerPodTemplate" -}}
+{{- $fullname := include "act-runner-scale-set.fullname" . -}}
+{{- $secretName := include "act-runner-scale-set.secretName" . -}}
+{{- $runnerName := include "act-runner-scale-set.runnerScaleSetName" . -}}
+{{- $containerType := .Values.containerMode.type | default "" -}}
+{{- $isScaledJob := include "act-runner-scale-set.useScaledJob" . -}}
+metadata:
+  labels:
+    {{- include "act-runner-scale-set.selectorLabels" . | nindent 4 }}
+  {{- if or .Values.runnerConfig .Values.podAnnotations }}
+  annotations:
+    {{- if .Values.runnerConfig }}
+    checksum/config: {{ .Values.runnerConfig | sha256sum }}
+    {{- end }}
+    {{- with .Values.podAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+spec:
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  serviceAccountName: {{ include "act-runner-scale-set.serviceAccountName" . }}
+  {{- with .Values.priorityClassName }}
+  priorityClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.podSecurityContext }}
+  securityContext:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if $isScaledJob }}
+  restartPolicy: Never
+  {{- else }}
+  restartPolicy: Always
+  {{- end }}
+  volumes:
+    {{- if or $isScaledJob (not .Values.persistence.enabled) }}
+    - name: runner-data
+      emptyDir: {}
+    {{- end }}
+    {{- if .Values.runnerConfig }}
+    - name: runner-config
+      configMap:
+        name: {{ include "act-runner-scale-set.configMapName" . }}
+    {{- end }}
+    {{- if eq $containerType "dind" }}
+    - name: docker-certs
+      emptyDir: {}
+    {{- end }}
+    {{- if and (not $containerType) .Values.hostDockerSocket.enabled }}
+    - name: docker-socket
+      hostPath:
+        path: {{ .Values.hostDockerSocket.path }}
+        type: Socket
+    {{- end }}
+    {{- if and .Values.giteaServerTLS .Values.giteaServerTLS.certificateFrom .Values.giteaServerTLS.certificateFrom.configMapRef .Values.giteaServerTLS.certificateFrom.configMapRef.name }}
+    - name: tls-ca
+      configMap:
+        name: {{ .Values.giteaServerTLS.certificateFrom.configMapRef.name }}
+    {{- end }}
+    {{- with .Values.extraVolumes }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+
+  {{- if eq $containerType "dind" }}
+  initContainers:
+    - name: init-dind-externals
+      image: {{ include "act-runner-scale-set.image" . }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      command: ["sh", "-c", "until nc -z localhost 2376; do echo 'waiting for docker daemon...'; sleep 2; done"]
+  {{- end }}
+
+  containers:
+    - name: runner
+      image: {{ include "act-runner-scale-set.image" . }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      {{- if and (ne $containerType "dind") (ne $containerType "dind-rootless") }}
+      command: ["sh", "-c", "/sbin/tini -- run.sh"]
+      {{- end }}
+      env:
+        - name: GITEA_INSTANCE_URL
+          value: {{ .Values.giteaConfigUrl | quote }}
+        - name: GITEA_RUNNER_REGISTRATION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secretName }}
+              key: token
+        - name: GITEA_RUNNER_NAME
+          value: {{ $runnerName | quote }}
+        {{- if .Values.runnerLabels }}
+        - name: GITEA_RUNNER_LABELS
+          value: {{ .Values.runnerLabels | quote }}
+        {{- end }}
+        {{- if .Values.ephemeral }}
+        - name: GITEA_RUNNER_EPHEMERAL
+          value: "true"
+        {{- end }}
+        {{- if eq $containerType "dind" }}
+        - name: DOCKER_HOST
+          value: tcp://localhost:2376
+        - name: DOCKER_CERT_PATH
+          value: /certs/client
+        - name: DOCKER_TLS_VERIFY
+          value: "1"
+        {{- end }}
+        {{- if .Values.proxy.http }}
+        - name: HTTP_PROXY
+          value: {{ .Values.proxy.http | quote }}
+        - name: http_proxy
+          value: {{ .Values.proxy.http | quote }}
+        {{- end }}
+        {{- if .Values.proxy.https }}
+        - name: HTTPS_PROXY
+          value: {{ .Values.proxy.https | quote }}
+        - name: https_proxy
+          value: {{ .Values.proxy.https | quote }}
+        {{- end }}
+        {{- if .Values.proxy.noProxy }}
+        - name: NO_PROXY
+          value: {{ .Values.proxy.noProxy | quote }}
+        - name: no_proxy
+          value: {{ .Values.proxy.noProxy | quote }}
+        {{- end }}
+        {{- with .Values.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.resources }}
+      resources:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumeMounts:
+        - name: runner-data
+          mountPath: /data
+        {{- if .Values.runnerConfig }}
+        - name: runner-config
+          mountPath: /etc/act_runner
+          readOnly: true
+        {{- end }}
+        {{- if eq $containerType "dind" }}
+        - name: docker-certs
+          mountPath: /certs
+        {{- end }}
+        {{- if and (not $containerType) .Values.hostDockerSocket.enabled }}
+        - name: docker-socket
+          mountPath: /var/run/docker.sock
+          readOnly: true
+        {{- end }}
+        {{- if and .Values.giteaServerTLS .Values.giteaServerTLS.certificateFrom .Values.giteaServerTLS.certificateFrom.configMapRef .Values.giteaServerTLS.certificateFrom.configMapRef.name }}
+        - name: tls-ca
+          mountPath: /etc/ssl/certs/gitea-ca.crt
+          subPath: {{ .Values.giteaServerTLS.certificateFrom.configMapRef.key | default "ca.crt" }}
+          readOnly: true
+        {{- end }}
+        {{- with .Values.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+
+    {{- if eq $containerType "dind" }}
+    - name: dind
+      image: {{ .Values.containerMode.dindImage }}
+      env:
+        - name: DOCKER_TLS_CERTDIR
+          value: /certs
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: docker-certs
+          mountPath: /certs
+        - name: runner-data
+          mountPath: /data
+    {{- end }}
+
+  {{- with .Values.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.affinity }}
+  affinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -1,7 +1,7 @@
-{{- if and .Values.keda.enabled (not .Values.ephemeral) }}
+{{- if include "act-runner-scale-set.useScaledJob" . }}
 {{- $fullname := include "act-runner-scale-set.fullname" . -}}
 apiVersion: keda.sh/v1alpha1
-kind: ScaledObject
+kind: ScaledJob
 metadata:
   name: {{ $fullname }}
   namespace: {{ .Release.Namespace }}
@@ -12,18 +12,20 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    {{- if .Values.persistence.enabled }}
-    kind: StatefulSet
-    {{- else }}
-    kind: Deployment
-    {{- end }}
-    name: {{ $fullname }}
-  minReplicaCount: {{ .Values.minRunners | default 1 }}
-  maxReplicaCount: {{ .Values.maxRunners | default 10 }}
+  jobTargetRef:
+    backoffLimit: 0
+    ttlSecondsAfterFinished: {{ .Values.keda.scaledJob.ttlSecondsAfterFinished | default 300 }}
+    template:
+      {{- include "act-runner-scale-set.runnerPodTemplate" . | nindent 6 }}
   pollingInterval: {{ .Values.keda.pollingInterval | default 30 }}
-  cooldownPeriod: {{ .Values.keda.cooldownPeriod | default 300 }}
+  maxReplicaCount: {{ .Values.maxRunners | default 10 }}
+  minReplicaCount: {{ .Values.minRunners | default 0 }}
+  successfulJobsHistoryLimit: {{ .Values.keda.scaledJob.successfulJobsHistoryLimit | default 5 }}
+  failedJobsHistoryLimit: {{ .Values.keda.scaledJob.failedJobsHistoryLimit | default 5 }}
+  {{- if .Values.keda.scaledJob.scalingStrategy }}
+  scalingStrategy:
+    strategy: {{ .Values.keda.scaledJob.scalingStrategy | default "default" | quote }}
+  {{- end }}
   triggers:
     - type: metrics-api
       metadata:
