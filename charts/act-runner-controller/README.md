@@ -54,9 +54,10 @@ Install this chart **once per cluster** (or once per namespace if you prefer iso
 ```
 
 1. The **act-runner-controller** chart creates a `TriggerAuthentication` that holds a reference to the Forgejo API token Secret.
-2. The **act-runner-scale-set** chart (with `keda.enabled=true`) creates a `ScaledObject` that uses KEDA's [`metrics-api` trigger](https://keda.sh/docs/latest/scalers/metrics-api/) to query the Forgejo REST API for pending jobs.
-3. KEDA reads the `total_count` field from the JSON response and scales the runner Deployment/StatefulSet between `minRunners` and `maxRunners`.
-4. When jobs are pending, KEDA scales up immediately. When idle for `cooldownPeriod` seconds, KEDA scales back down to `minRunners`.
+2. The **act-runner-scale-set** chart (with `keda.enabled=true`) creates either a `ScaledObject` or `ScaledJob`, both using KEDA's [`metrics-api` trigger](https://keda.sh/docs/latest/scalers/metrics-api/) to query the Forgejo REST API for pending jobs.
+3. KEDA reads the `total_count` field from the JSON response.
+4. **ScaledObject** (persistent runners, `ephemeral=false`): scales the Deployment/StatefulSet between `minRunners` and `maxRunners`. Scales down after `cooldownPeriod`.
+5. **ScaledJob** (ephemeral runners, `ephemeral=true`): creates one Kubernetes Job per pending workflow job. Each Job runs a single runner that registers, processes one job, and exits cleanly.
 
 ## Install
 

@@ -3,8 +3,12 @@ act-runner-scale-set "{{ include "act-runner-scale-set.runnerScaleSetName" . }}"
 Namespace: {{ .Release.Namespace }}
 Gitea URL: {{ .Values.giteaConfigUrl }}
 Container Mode: {{ .Values.containerMode.type | default "basic" }}
-{{- if .Values.keda.enabled }}
-Autoscaling: KEDA (job-aware)
+{{- if include "act-runner-scale-set.useScaledJob" . }}
+Autoscaling: KEDA ScaledJob (ephemeral — one Job per workflow job)
+  Max Runners: {{ .Values.maxRunners | default 10 }}
+  Polling:     {{ .Values.keda.pollingInterval | default 30 }}s
+{{- else if .Values.keda.enabled }}
+Autoscaling: KEDA ScaledObject (persistent runners)
   Min Runners: {{ .Values.minRunners | default 1 }}
   Max Runners: {{ .Values.maxRunners | default 10 }}
   Polling:     {{ .Values.keda.pollingInterval | default 30 }}s
@@ -21,7 +25,14 @@ Verify the runners are registered:
 
 Check runner logs:
   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -c runner -f
-{{- if .Values.keda.enabled }}
+{{- if include "act-runner-scale-set.useScaledJob" . }}
+
+Check KEDA ScaledJob status:
+  kubectl get scaledjob {{ include "act-runner-scale-set.fullname" . }} -n {{ .Release.Namespace }}
+
+List runner Jobs:
+  kubectl get jobs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- else if .Values.keda.enabled }}
 
 Check KEDA ScaledObject status:
   kubectl get scaledobject {{ include "act-runner-scale-set.fullname" . }} -n {{ .Release.Namespace }}

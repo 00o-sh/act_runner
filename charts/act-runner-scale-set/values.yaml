@@ -177,9 +177,11 @@ giteaServerTLS:
 # chart to provide TriggerAuthentication.
 # See https://keda.sh/docs/latest/deploy/ for KEDA installation.
 keda:
-  # -- Enable KEDA ScaledObject for job-aware autoscaling.
-  #    When enabled, KEDA scales the runner Deployment/StatefulSet based on
-  #    pending Forgejo/Gitea workflow jobs. This replaces HPA-based autoscaling.
+  # -- Enable KEDA for job-aware autoscaling.
+  #    KEDA mode depends on the `ephemeral` setting:
+  #      ephemeral=false → ScaledObject: scales Deployment/StatefulSet replicas up/down
+  #      ephemeral=true  → ScaledJob: creates one Kubernetes Job per pending workflow job
+  #    ScaledJob is recommended for ephemeral runners (clean 1:1 mapping).
   enabled: false
 
   # -- Name of the KEDA TriggerAuthentication resource (created by act-runner-controller chart).
@@ -206,6 +208,22 @@ keda:
 
   # -- Skip TLS verification for the Forgejo API (not recommended for production)
   unsafeSsl: false
+
+  # ScaledJob-specific settings (only used when keda.enabled=true AND ephemeral=true).
+  # When ephemeral is true, KEDA creates a Kubernetes Job per pending workflow job
+  # instead of scaling a Deployment. Each Job runs one runner, completes, and exits.
+  scaledJob:
+    # -- Seconds to keep completed Jobs before automatic cleanup
+    ttlSecondsAfterFinished: 300
+    # -- Number of successful Jobs to retain in history
+    successfulJobsHistoryLimit: 5
+    # -- Number of failed Jobs to retain in history
+    failedJobsHistoryLimit: 5
+    # -- KEDA scaling strategy: "default", "custom", or "accurate"
+    #    default:  KEDA decides how many jobs to create per polling cycle
+    #    accurate: creates exactly one Job per pending workflow job
+    #    custom:   advanced custom formula (see KEDA docs)
+    scalingStrategy: ""
 
 # -- HTTP proxy configuration
 proxy:
