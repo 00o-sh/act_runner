@@ -4,7 +4,7 @@
 
 This document lays out how to replicate GitHub Actions Runner Controller (ARC) / Runner Scale Sets functionality for Forgejo. The goal: a **controller** that watches for pending CI/CD jobs and dynamically creates/destroys **ephemeral runner pods** in Kubernetes, scaling from zero to N and back.
 
-This repo already contains a working foundation (bash-based controller + Helm charts). This plan identifies the gaps relative to GitHub ARC and proposes concrete improvements.
+**Strategy**: Start with **Option C (KEDA ScaledJob)** for immediate value with minimal custom code, then evolve to **Option B (Go Kubernetes Operator)** when we need CRD-based management, richer status reporting, and full control over the scaling lifecycle.
 
 ---
 
@@ -28,6 +28,8 @@ GitHub ARC consists of:
 - **Per-job pods**: Each job gets a fresh pod. No state contamination.
 - **CRD-driven**: Full Kubernetes-native operator with reconciliation loops.
 
+**ARC's codebase**: ~8,300 LOC (non-test) across ~27 Go files, using controller-runtime v0.22.4. Four controllers (AutoscalingRunnerSet, AutoscalingListener, EphemeralRunnerSet, EphemeralRunner) plus a separate Listener binary.
+
 ---
 
 ## 2. What Forgejo Provides (The Constraints)
@@ -39,10 +41,10 @@ GitHub ARC consists of:
 | Runner protocol | ConnectRPC (gRPC over HTTP) | `Register`, `Declare`, `FetchTask`, `UpdateTask`, `UpdateLog` RPCs via `/api/actions` |
 | `--ephemeral` flag | Supported | Runner registers as single-use, executes one job, exits |
 | `--once` flag | Supported | Runner executes one job and exits (less strict than ephemeral) |
-| Pending jobs API | Available (v11.0+) | `GET /api/v1/admin/actions/jobs?status=waiting` |
+| Pending jobs API | Available (v11.0+) | `GET /api/v1/admin/runners/jobs?labels={labels}` |
 | Registration token API | Available (v1.22+) | `GET /api/v1/repos/{owner}/{repo}/runners/registration-token` |
 | Offline registration | Available | `forgejo-cli actions register --secret <secret>` |
-| KEDA scaler | Merged upstream | `forgejo-runner` trigger in KEDA polls pending jobs |
+| KEDA scaler | Merged in KEDA v2.18.0 | `forgejo-runner` trigger polls pending jobs with label filtering |
 
 ### What does NOT exist
 
@@ -58,7 +60,7 @@ GitHub ARC consists of:
 
 GitHub ARC uses a **push model**: GitHub tells the controller "a job is waiting" via a persistent message session. Forgejo requires a **poll model**: the controller must periodically ask "are there pending jobs?"
 
-This means Forgejo scaling will always have slightly higher latency than ARC (polling interval vs near-instant push), but with a 5-10s poll interval this is acceptable for most workloads.
+This means Forgejo scaling will always have slightly higher latency than ARC (polling interval vs near-instant push), but with a 10-15s poll interval this is acceptable for most workloads.
 
 ---
 
@@ -84,173 +86,363 @@ This repo already implements a two-chart architecture:
 
 | ARC Feature | Current Status | Gap |
 |-------------|---------------|-----|
-| Push-based scaling | Polling every 30s | Medium (acceptable, could reduce interval) |
+| Push-based scaling | Polling every 30s | Medium (acceptable with shorter interval) |
 | CRD-driven operator | Bash script | Large (no reconciliation, no status, no events) |
 | Per-job pods | Long-lived StatefulSet/Deployment | Large (pods reuse runners, not truly ephemeral) |
-| JIT token isolation | Runner gets registration token | Medium (token reuse across pod restarts) |
-| Listener component | Controller polls API | Medium (functionally equivalent but less efficient) |
+| JIT token isolation | Runner gets shared registration token | Medium (token reuse across pod restarts) |
 | Scale-from-zero | Supported via minRunners=0 | Small (works, but scale-up latency is 30s + pod startup) |
 | Job-label routing | All pending jobs counted globally | Medium (no per-label-set scaling) |
 | Failure retry | No retry logic | Medium (failed pods not retried) |
 
 ---
 
-## 4. Architecture Plan
+## 4. Strategy: Option C (KEDA) now, Option B (Go Operator) later
 
-### Option A: Enhanced Bash Controller (Incremental)
+### Why KEDA first
 
-Improve the existing bash-based controller to close the most impactful gaps.
+1. **Immediate per-job ephemeral pods** via ScaledJob (each CI job = one K8s Job pod)
+2. **Scale-from-zero is native** (`minReplicaCount: 0`)
+3. **Label-based routing built in** (KEDA's `forgejo-runner` trigger accepts `labels` metadata, Forgejo API filters server-side)
+4. **No custom controller code needed** - KEDA handles all scaling logic
+5. **Retry via K8s Job `backoffLimit`** - no custom failure handling
+6. **The pod template is ~80% reusable** from existing charts
 
-**Pros**: Minimal development effort, builds on working foundation.
-**Cons**: Bash has limits for complex state management, no CRDs, harder to test.
+### Why eventually Go operator
 
-### Option B: Go Kubernetes Operator (Full Rewrite)
+1. **CRD status reporting** - `kubectl get runnerscalesets` showing current runners, pending jobs, conditions
+2. **Kubernetes Events** on scale up/down for debugging
+3. **Full lifecycle control** - custom retry logic (5 retries with backoff like ARC), graceful draining
+4. **Registration token isolation** - generate per-pod tokens instead of sharing one secret
+5. **No KEDA dependency** - one fewer cluster component to manage
+6. **ConnectRPC integration** - reuse the existing `internal/pkg/client` for efficient polling via `FetchTask` with `tasksVersion` change detection
 
-Build a proper Kubernetes operator in Go with CRDs, mimicking ARC's architecture.
+### They coexist during migration
 
-**Pros**: Full ARC parity, Kubernetes-native, testable, extensible.
-**Cons**: Significant development effort, requires operator-sdk or controller-runtime expertise.
-
-### Option C: KEDA + Ephemeral Jobs (External Tooling)
-
-Use KEDA's `ScaledJob` with the `forgejo-runner` trigger. KEDA handles all scaling logic.
-
-**Pros**: Minimal custom code, mature scaling framework, community-maintained.
-**Cons**: External dependency (KEDA), less control over scaling logic, KEDA ScaledJob has its own quirks.
-
-### Recommendation: Option A first, then Option B
-
-Start with **Option A** to get immediate value from the existing foundation, then evolve toward **Option B** as complexity requirements grow. Option C is a good alternative if you want to minimize custom code.
+KEDA and a Go operator can run side-by-side with zero conflict:
+- Different CRDs (`keda.sh/v1alpha1` vs `actions.forgejo.org/v1alpha1`)
+- Different target resources (KEDA creates `batch/v1 Jobs`, operator creates `EphemeralRunner` CRs)
+- Use different runner labels per scale set to prevent both scaling for the same jobs
+- Migrate one scale set at a time: delete KEDA ScaledJob, create RunnerScaleSet CR
 
 ---
 
-## 5. Detailed Design: Option A (Enhanced Controller)
+## 5. Option C: KEDA ScaledJob — Detailed Design
 
-### 5.1 Per-Label-Set Scaling
+### 5.1 Prerequisites
 
-**Problem**: The current controller counts all pending jobs globally and scales all runner workloads equally. A `gpu-runner` scale set shouldn't scale up because `ubuntu-latest` jobs are pending.
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Forgejo | v11.0+ | For `/runners/jobs?labels=` API endpoints |
+| KEDA | v2.18.0+ | For `forgejo-runner` trigger type |
+| act_runner image | Current | Must support `--ephemeral` flag |
 
-**Solution**: Match pending jobs to runner scale sets by label.
+### 5.2 Architecture
 
 ```
-For each runner scale set:
-  1. Read its labels from annotation: act-runner/labels
-  2. Query pending jobs: GET /api/v1/admin/actions/jobs?status=waiting
-  3. Filter: count only jobs whose `runs-on` matches the scale set's labels
-  4. Scale the workload based on matched pending count
+                                polls every 10-30s
+┌────────────────────┐    GET /api/v1/.../runners/jobs    ┌──────────────┐
+│   KEDA Operator     │ ──────────────────────────────→   │   Forgejo     │
+│   (ScaledJob        │   ?labels=ubuntu-latest           │   Instance    │
+│    controller)      │ ←──────────────────────────────   │              │
+└────────┬───────────┘   [{ job1 }, { job2 }, ...]        └──────┬───────┘
+         │                                                        │
+         │ creates batch/v1 Jobs                                  │
+         │ (one per pending CI job)                               │
+         ▼                                                        │
+┌────────────────────┐                                            │
+│  K8s Job Pods       │  register → run 1 job → exit              │
+│                     │ ────────────────────────────────────────→  │
+│  runner-abc (Job)   │  ConnectRPC: Register, FetchTask,         │
+│  runner-def (Job)   │  UpdateTask, UpdateLog                    │
+│  runner-ghi (Job)   │                                           │
+└────────────────────┘                                            │
+         │                                                        │
+         │ ttlSecondsAfterFinished: 300                           │
+         ▼                                                        │
+      (auto-cleaned)                                              │
 ```
 
-**API limitation**: The Forgejo API may not expose `runs-on` in the job list response. If not, two fallbacks:
-- Query individual job details to get the `runs-on` field
-- Track active runners per scale set and distribute pending jobs proportionally
+### 5.3 KEDA `forgejo-runner` Trigger Details
 
-### 5.2 True Ephemeral Pods (Job-Based Scaling)
+The scaler (merged in [KEDA PR #6495](https://github.com/kedacore/keda/pull/6495)) works as follows:
 
-**Problem**: Current approach scales a Deployment/StatefulSet. Pods are long-lived and reuse runners. Not truly one-pod-per-job.
+**API endpoints polled** (depending on scope):
 
-**Solution**: Switch from scaling a Deployment to creating individual Kubernetes Jobs.
+| Scope | Endpoint |
+|-------|----------|
+| Global (admin) | `GET /api/v1/admin/runners/jobs?labels={labels}` |
+| Organization | `GET /api/v1/orgs/{org}/actions/runners/jobs?labels={labels}` |
+| Repository | `GET /api/v1/repos/{owner}/{repo}/actions/runners/jobs?labels={labels}` |
+| User | `GET /api/v1/user/actions/runners/jobs?labels={labels}` |
+
+**Metric**: `len(pendingJobs)` — the number of pending jobs returned by the API.
+
+**Authentication**: Forgejo PAT via `Authorization: token <token>` header. Use `TriggerAuthentication` to reference a K8s Secret.
+
+**Label filtering**: Server-side — Forgejo returns only jobs matching the specified labels.
+
+**Trigger metadata fields**:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Runner name identifier |
+| `address` | Yes | Forgejo instance URL |
+| `labels` | Yes | Comma-separated runner labels (e.g., `"ubuntu-latest"`) |
+| `global` | No | `"true"` for admin scope (default) |
+| `owner` | No | Username for user/org/repo scope |
+| `repo` | No | Repository name (with `owner` for repo scope) |
+
+### 5.4 Why ScaledJob (not ScaledObject)
+
+**ScaledJob is correct for ephemeral CI runners.** ScaledObject would scale a Deployment and could **kill in-progress CI jobs** during scale-in. ScaledJob creates independent K8s Jobs that each run to completion and self-terminate.
+
+| Aspect | ScaledObject (wrong) | ScaledJob (correct) |
+|--------|---------------------|---------------------|
+| Scale-in | Kills running pods | Jobs finish naturally |
+| Pod lifecycle | Long-lived, reused | Ephemeral, one-shot |
+| State isolation | Risk of contamination | Fresh pod per job |
+| Scaling math | Must count running+pending | Only creates for pending |
+
+### 5.5 Full ScaledJob Manifest
 
 ```yaml
-apiVersion: batch/v1
-kind: Job
+apiVersion: v1
+kind: Secret
 metadata:
-  name: runner-<job-id>-<random>
-  labels:
-    app.kubernetes.io/managed-by: act-runner-controller
-    act-runner/scale-set: my-runners
+  name: forgejo-scaler-token
+  namespace: act-runners
+type: Opaque
+data:
+  token: <base64-encoded-forgejo-PAT>
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: runner-registration-token
+  namespace: act-runners
+type: Opaque
+data:
+  token: <base64-encoded-runner-registration-token>
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: forgejo-trigger-auth
+  namespace: act-runners
 spec:
-  ttlSecondsAfterFinished: 60
-  backoffLimit: 3
-  template:
-    spec:
-      restartPolicy: Never
-      containers:
-      - name: runner
-        image: ghcr.io/00o-sh/act_runner:latest
-        env:
-        - name: GITEA_INSTANCE_URL
-          value: "https://forgejo.example.com"
-        - name: GITEA_RUNNER_REGISTRATION_TOKEN
-          valueFrom:
-            secretKeyRef: ...
-        - name: GITEA_RUNNER_EPHEMERAL
-          value: "true"
+  secretTargetRef:
+  - parameter: token
+    name: forgejo-scaler-token
+    key: token
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: ubuntu-runners
+  namespace: act-runners
+spec:
+  # --- Scaling behavior ---
+  minReplicaCount: 0              # Scale to zero when idle
+  maxReplicaCount: 20             # Max concurrent runner pods
+  pollingInterval: 15             # Seconds between Forgejo API polls
+  successfulJobsHistoryLimit: 3   # Keep 3 completed Jobs (default 100 is too high)
+  failedJobsHistoryLimit: 3       # Keep 3 failed Jobs for debugging
+  rollout:
+    strategy: gradual             # CRITICAL: don't kill running jobs on manifest update
+
+  # --- Forgejo trigger ---
+  triggers:
+  - type: forgejo-runner
+    metadata:
+      name: "ubuntu-runner"
+      address: "https://forgejo.example.com"
+      labels: "ubuntu-latest"
+      global: "true"              # Admin scope (or use owner/repo for narrower scope)
+    authenticationRef:
+      name: forgejo-trigger-auth
+
+  # --- Job template ---
+  jobTargetRef:
+    ttlSecondsAfterFinished: 300  # Cleanup 5 min after completion (debug window)
+    backoffLimit: 3               # Retry up to 3 times on failure
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/name: forgejo-runner
+          app.kubernetes.io/component: runner
+      spec:
+        restartPolicy: Never
+        serviceAccountName: runner-sa
+        containers:
+        - name: runner
+          image: ghcr.io/00o-sh/act_runner:latest
+          env:
+          - name: GITEA_INSTANCE_URL
+            value: "https://forgejo.example.com"
+          - name: GITEA_RUNNER_REGISTRATION_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: runner-registration-token
+                key: token
+          - name: GITEA_RUNNER_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name    # Unique per Job pod
+          - name: GITEA_RUNNER_LABELS
+            value: "ubuntu-latest:docker://node:20"
+          - name: GITEA_RUNNER_EPHEMERAL
+            value: "true"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+          - name: runner-data
+            mountPath: /data
+        volumes:
+        - name: runner-data
+          emptyDir: {}            # No PVC — fresh state per job
 ```
 
-**Benefits**:
-- Each job gets a fresh pod (true ephemeral)
-- Kubernetes handles retry logic via `backoffLimit`
-- `ttlSecondsAfterFinished` auto-cleans completed pods
-- Pod count = active job count (natural scaling)
+### 5.6 Two Secrets, Two Purposes
 
-**Controller logic changes**:
-```
-each cycle:
-  pending = count_pending_jobs()
-  active_runners = count_running_job_pods(label=act-runner/scale-set)
-  needed = pending - active_runners  # may be negative (scale down is automatic)
+Note the separation of concerns:
 
-  if needed > 0:
-    for i in range(min(needed, max_runners - active_runners)):
-      create_kubernetes_job()
+| Secret | Used By | Purpose |
+|--------|---------|---------|
+| `forgejo-scaler-token` | KEDA trigger (TriggerAuthentication) | Forgejo **PAT** to query pending jobs API. Never touches runner pods. |
+| `runner-registration-token` | Runner pod env var | Runner **registration token** for `act_runner register`. Only used inside runner pods. |
 
-  # Scale-down is automatic: ephemeral runners finish and Jobs complete
-  # ttlSecondsAfterFinished handles cleanup
-```
+This is an improvement over the current bash controller where the same API token does both.
 
-### 5.3 Faster Polling / Hybrid Polling
+### 5.7 DinD Variant
 
-**Problem**: 30s polling interval means up to 30s latency before scaling starts.
+For runners that need Docker (container-based actions):
 
-**Solutions** (choose one or combine):
+```yaml
+# Add to jobTargetRef.template.spec:
+containers:
+- name: runner
+  image: ghcr.io/00o-sh/act_runner:latest
+  env:
+  - name: DOCKER_HOST
+    value: tcp://localhost:2376
+  - name: DOCKER_TLS_VERIFY
+    value: "1"
+  - name: DOCKER_CERT_PATH
+    value: /certs/client
+  # ... other env vars same as above
+  volumeMounts:
+  - name: docker-certs
+    mountPath: /certs
+    readOnly: true
+  - name: runner-data
+    mountPath: /data
 
-1. **Reduce poll interval to 5-10s**: Simple, slightly more API load
-2. **Adaptive polling**: Poll every 5s when pending > 0, every 30s when idle
-3. **ConnectRPC long-poll**: Instead of the REST API, use the runner's `FetchTask` RPC with a longer timeout. The `tasksVersion` mechanism already provides change detection - if version hasn't changed, no new tasks exist. This is more efficient than REST polling.
-4. **Forgejo webhook (future)**: If Forgejo adds a `workflow_job.queued` webhook event, the controller could expose an HTTP endpoint to receive push notifications.
+- name: dind
+  image: docker:28-dind
+  securityContext:
+    privileged: true
+  env:
+  - name: DOCKER_TLS_CERTDIR
+    value: /certs
+  volumeMounts:
+  - name: docker-certs
+    mountPath: /certs
 
-**Recommended**: Adaptive polling (option 2) as immediate improvement.
-
-```bash
-if [ "$PENDING_JOBS" -gt 0 ]; then
-  NEXT_INTERVAL=5
-else
-  NEXT_INTERVAL=$RECONCILE_INTERVAL  # 30s default
-fi
-```
-
-### 5.4 Registration Token Isolation
-
-**Problem**: All runner pods in a scale set share the same registration token. If a pod is compromised, the token can register rogue runners.
-
-**Solution**: Generate per-pod registration tokens.
-
-```
-For each new runner pod:
-  1. Controller calls: GET /api/v1/admin/runners/registration-token
-  2. Create a per-pod Secret with the token
-  3. Mount it in the pod
-  4. Runner uses it to register (ephemeral, single-use)
-  5. Delete the Secret after pod completes
+volumes:
+- name: docker-certs
+  emptyDir: {}
+- name: runner-data
+  emptyDir: {}
 ```
 
-This mimics ARC's JIT token model, though not as granular (ARC's JIT tokens are scoped to a single runner registration, not a reusable registration token).
+### 5.8 Known Gotchas & Mitigations
 
-### 5.5 Health and Observability
+| Gotcha | Impact | Mitigation |
+|--------|--------|------------|
+| **Over-provisioning from metric lag** | If runner takes longer to start than `pollingInterval`, KEDA creates duplicate Jobs for same CI job | Tune `pollingInterval` to be longer than pod startup time, or use `accurate` scaling strategy |
+| **Default rollout kills running jobs** | Updating ScaledJob manifest terminates all existing Jobs | Always use `rollout.strategy: gradual` |
+| **History limits default to 100** | Hundreds of completed Job/Pod objects clutter namespace | Set `successfulJobsHistoryLimit: 3` and `failedJobsHistoryLimit: 3` |
+| **No fallback mechanism** | If Forgejo API is unreachable, no new Jobs are created (no fallback value) | ScaledJob limitation — monitor KEDA scaler health, ensure Forgejo uptime |
+| **Scope mismatch** | Runner registered at org scope but trigger at admin scope = wrong counts | Match trigger scope to runner registration scope exactly |
+| **DinD image pull overhead** | Each ephemeral pod re-pulls Docker images for steps | Use image pull-through registry or pre-warm nodes with common images |
+| **Forgejo v11.0+ required** | `/runners/jobs` API only exists in Forgejo v11.0+ | Verify Forgejo version before deploying |
+| **`eager` strategy may be buggy** | KEDA issue #6416 reports overlap with `default` strategy | Stick with `default` scaling strategy |
+| **Registration token shared** | All runner pods use same token | Acceptable for KEDA phase; Go operator (Option B) will add per-pod tokens |
 
-**Additions to the controller**:
-- Expose Prometheus metrics endpoint (pending jobs, active runners, scale events)
-- Emit Kubernetes Events on scale-up/scale-down
-- Log structured JSON for easier parsing
-- Add readiness probe (not just liveness)
+### 5.9 What Changes vs. Current Charts
+
+| Component | Current | KEDA Approach |
+|-----------|---------|---------------|
+| **act-runner-controller chart** | Bash controller Deployment | **Eliminated** — KEDA replaces it |
+| **act-runner-scale-set chart** | Deployment/StatefulSet | **Replaced** with KEDA ScaledJob |
+| `deployment.yaml` template | Scales replicas of long-lived pods | Deleted; replaced by `scaledjob.yaml` |
+| `hpa.yaml` template | CPU/memory-based HPA | Deleted; KEDA handles scaling |
+| `persistence` values | PVC for runner state | Removed; emptyDir only (ephemeral pods) |
+| `replicas` value | Initial replica count | Removed; KEDA determines count from pending jobs |
+| `run.sh` script | Checks for existing `.runner` file | Simplified; always registers fresh (no PVC) |
+| Pod `restartPolicy` | Always (Deployment) | Never (Job) |
+| Runner name | Prefix from release name | Pod name via `metadata.name` fieldRef (unique per Job) |
+| RBAC | ClusterRole to patch Deployments/StatefulSets | Minimal; runner pods only need Secret read access |
+
+**~80% of the pod template** (container spec, env vars, volumes, DinD sidecar logic, security context, resources, affinity) is directly reusable. The scaling orchestration is completely replaced.
+
+### 5.10 Helm Chart Structure (KEDA Phase)
+
+```
+charts/
+├── act-runner-controller/        # KEEP for users not using KEDA (backward compat)
+└── act-runner-scale-set/
+    ├── Chart.yaml
+    ├── values.yaml               # Add keda.enabled toggle
+    └── templates/
+        ├── _helpers.tpl          # Keep as-is
+        ├── deployment.yaml       # Keep: used when keda.enabled=false
+        ├── scaledjob.yaml        # NEW: used when keda.enabled=true
+        ├── triggerauth.yaml      # NEW: KEDA TriggerAuthentication
+        ├── secret.yaml           # Keep (runner registration token)
+        ├── configmap.yaml        # Keep (runner config)
+        ├── serviceaccount.yaml   # Keep (simplified RBAC)
+        └── hpa.yaml              # Keep: used when keda.enabled=false
+```
+
+Both modes coexist in the same chart via a `keda.enabled` toggle, so existing users are not disrupted.
 
 ---
 
-## 6. Detailed Design: Option B (Go Operator)
+## 6. Option B: Go Kubernetes Operator — Detailed Design
 
-For when complexity outgrows bash. This is the ARC-equivalent architecture.
+### 6.1 When to Build It
 
-### 6.1 Custom Resource Definitions
+Move to the Go operator when any of these become true:
+- You need `kubectl get runnerscalesets` with live status (pending jobs, current runners, conditions)
+- You want Kubernetes Events emitted on scale up/down for debugging
+- You want per-pod registration token isolation (security requirement)
+- You want custom retry logic beyond K8s Job `backoffLimit` (e.g., 5 retries with exponential backoff)
+- You want to drop the KEDA dependency
+- You want to use `FetchTask` ConnectRPC with `tasksVersion` change detection instead of REST polling (more efficient)
+
+### 6.2 Architecture (Simplified vs. ARC)
+
+ARC needs 4 CRDs and a separate Listener binary because GitHub uses push-based notifications. Since Forgejo uses polling, our architecture is simpler:
+
+```
+ARC (GitHub)                       Our Operator (Forgejo)
+────────────────────────          ────────────────────────
+AutoscalingRunnerSet CRD    →     RunnerScaleSet CRD
+AutoscalingListener CRD     →     NOT NEEDED (no push notifications)
+EphemeralRunnerSet CRD      →     NOT NEEDED (controller creates runners directly)
+EphemeralRunner CRD         →     EphemeralRunner CRD
+Listener binary (separate)  →     Poller goroutine (inside controller)
+4 controllers               →     2 controllers
+~8,300 LOC                  →     ~2,000-2,500 LOC
+```
+
+### 6.3 Custom Resource Definitions
 
 ```yaml
 # RunnerScaleSet - top-level resource (analogous to ARC's AutoScalingRunnerSet)
@@ -261,9 +453,11 @@ metadata:
 spec:
   forgejoInstance: https://forgejo.example.com
   authSecretRef:
-    name: forgejo-api-token
-  scope: organization  # or "repository", "global"
-  organization: my-org
+    name: forgejo-api-token         # PAT for polling pending jobs
+  registrationSecretRef:
+    name: runner-registration-token  # Registration token for runners
+  scope: admin                       # "admin", "org", "repo"
+  organization: my-org               # When scope=org
   labels:
     - "ubuntu-latest:docker://node:20"
     - "ubuntu-22.04:docker://ubuntu:22.04"
@@ -271,8 +465,10 @@ spec:
   maxRunners: 20
   pollInterval: 10s
   scaleDownDelay: 5m
+  maxRetries: 5                      # Per-runner failure retries
   template:
     spec:
+      restartPolicy: Never
       containers:
       - name: runner
         image: ghcr.io/00o-sh/act_runner:latest
@@ -283,13 +479,20 @@ spec:
 status:
   currentRunners: 3
   pendingJobs: 5
+  pendingEphemeralRunners: 2
+  runningEphemeralRunners: 3
+  failedEphemeralRunners: 0
   lastScaleTime: "2026-02-10T12:00:00Z"
   conditions:
   - type: Ready
     status: "True"
+    message: "Polling active, 3 runners running"
+  - type: ScalingActive
+    status: "True"
+    message: "5 pending jobs, scaling up"
 
 ---
-# EphemeralRunner - individual runner lifecycle (analogous to ARC's EphemeralRunner)
+# EphemeralRunner - individual runner lifecycle
 apiVersion: actions.forgejo.org/v1alpha1
 kind: EphemeralRunner
 metadata:
@@ -301,316 +504,206 @@ metadata:
 spec:
   scaleSetRef: ubuntu-runners
 status:
-  phase: Running  # Pending, Registering, Running, Completed, Failed
+  phase: Running        # Pending, Registering, Running, Completed, Failed
   podName: ubuntu-runners-abc123-pod
   startedAt: "2026-02-10T12:00:05Z"
   retryCount: 0
+  failureMessage: ""
 ```
 
-### 6.2 Controller Reconciliation Loops
+### 6.4 Controller Reconciliation Loops
 
 ```
 RunnerScaleSet Controller:
   Watch: RunnerScaleSet resources
   Reconcile:
-    1. Validate Forgejo connectivity (Ping RPC)
-    2. Ensure registration token Secret exists
-    3. Start/update Poller goroutine for this scale set
-    4. Update status with current runner count and pending jobs
-
-Poller (per RunnerScaleSet):
-  Loop:
-    1. GET /api/v1/admin/actions/jobs?status=waiting
-    2. Filter jobs matching this scale set's labels
-    3. Count active EphemeralRunner resources for this scale set
-    4. Calculate desired = max(minRunners, min(maxRunners, pending))
-    5. If desired > current: Create new EphemeralRunner resources
-    6. If desired < current (after cooldown): Delete idle EphemeralRunner resources
-    7. Update RunnerScaleSet status
+    1. Validate Forgejo connectivity (Ping RPC or REST health check)
+    2. Ensure secrets exist and are valid
+    3. Start/update Poller goroutine for this scale set:
+       a. Poll: GET /api/v1/{scope}/runners/jobs?labels={labels}
+          (or use FetchTask ConnectRPC with tasksVersion for efficiency)
+       b. Count active EphemeralRunner resources for this scale set
+       c. Calculate desired = max(minRunners, min(maxRunners, pending))
+       d. If desired > current: Create new EphemeralRunner resources
+       e. If desired < current (after scaleDownDelay): Delete idle EphemeralRunners
+    4. Update RunnerScaleSet status (currentRunners, pendingJobs, conditions)
+    5. Emit Kubernetes Events on scale changes
 
 EphemeralRunner Controller:
   Watch: EphemeralRunner resources + owned Pods
   Reconcile:
-    1. If no Pod exists: Generate registration token, create Pod
-    2. If Pod is Running: Monitor for completion
-    3. If Pod Succeeded: Mark EphemeralRunner as Completed, delete
-    4. If Pod Failed: Increment retryCount, recreate if < maxRetries (5)
-    5. If Pod Failed maxRetries times: Mark as Failed, alert
+    1. If no Pod exists and phase=Pending:
+       - (Future: generate per-pod registration token via API)
+       - Create Pod from RunnerScaleSet template + registration env vars
+       - Set phase=Registering
+    2. If Pod is Running and phase=Registering:
+       - Set phase=Running
+    3. If Pod Succeeded:
+       - Set phase=Completed
+       - Delete EphemeralRunner (with owner reference, Pod auto-deleted)
+    4. If Pod Failed and retryCount < maxRetries:
+       - Increment retryCount
+       - Delete failed Pod
+       - Create new Pod (exponential backoff: 5s, 10s, 20s, 40s, 80s)
+    5. If Pod Failed and retryCount >= maxRetries:
+       - Set phase=Failed
+       - Emit warning Event
+       - Do not retry (manual intervention needed)
 ```
 
-### 6.3 Technology Stack
+### 6.5 Technology Stack
 
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
-| Operator framework | controller-runtime (kubebuilder) | Industry standard, same as ARC |
-| CRD generation | controller-gen | Standard code generation |
-| Forgejo client | ConnectRPC (reuse `internal/pkg/client`) | Already implemented in this repo |
-| Helm charts | Refactor existing | Preserve backward compatibility |
-| Testing | envtest + fake client | Standard k8s testing patterns |
+| Scaffolding | Kubebuilder | Industry standard; ARC uses same layout with controller-runtime |
+| Operator framework | `sigs.k8s.io/controller-runtime` | Same as ARC; production-proven |
+| CRD generation | `controller-gen` | Standard; generates CRD YAML from Go struct tags |
+| Forgejo API client | ConnectRPC (reuse `internal/pkg/client`) | Already in this repo; `FetchTask` with `tasksVersion` is efficient |
+| Forgejo REST client | Standard `net/http` | For pending jobs API (`/runners/jobs`) |
+| Helm charts | Refactor existing | Controller chart deploys Go binary; scale-set chart creates CRs |
+| Testing | `envtest` + fake client | Standard k8s controller testing |
+| Metrics | `controller-runtime` metrics (Prometheus) | Built into the framework |
 
-### 6.4 Project Structure
+### 6.6 Project Structure
 
 ```
 /
 ├── cmd/
+│   ├── act_runner/                    # Existing runner binary (unchanged)
 │   └── controller/
-│       └── main.go                    # Controller entrypoint
+│       └── main.go                    # Operator entrypoint (~80 LOC)
 ├── api/
 │   └── v1alpha1/
-│       ├── runnerscaleset_types.go    # CRD type definitions
-│       ├── ephemeralrunner_types.go
-│       ├── groupversion_info.go
-│       └── zz_generated.deepcopy.go
+│       ├── runnerscaleset_types.go    # RunnerScaleSet CRD (~120 LOC)
+│       ├── ephemeralrunner_types.go   # EphemeralRunner CRD (~80 LOC)
+│       ├── groupversion_info.go       # API group registration (~35 LOC)
+│       └── zz_generated.deepcopy.go   # Auto-generated
 ├── internal/
+│   ├── app/                           # Existing runner code (unchanged)
+│   ├── pkg/                           # Existing runner code (unchanged)
 │   ├── controller/
-│   │   ├── runnerscaleset_controller.go
-│   │   ├── ephemeralrunner_controller.go
-│   │   └── poller.go                  # Job polling logic
+│   │   ├── runnerscaleset_controller.go  # Scale set reconciler + poller (~600-800 LOC)
+│   │   ├── ephemeralrunner_controller.go # Runner lifecycle (~400-500 LOC)
+│   │   └── suite_test.go                 # envtest setup
 │   ├── forgejo/
-│   │   ├── client.go                  # Forgejo API client
-│   │   └── jobs.go                    # Job listing/filtering
+│   │   ├── client.go                  # REST client for /runners/jobs (~150 LOC)
+│   │   └── types.go                   # API response types (~50 LOC)
 │   └── metrics/
-│       └── metrics.go                 # Prometheus metrics
+│       └── metrics.go                 # Custom Prometheus metrics (~100 LOC)
 ├── config/
-│   ├── crd/                           # Generated CRD manifests
-│   ├── rbac/                          # RBAC manifests
-│   └── manager/                       # Controller manager manifests
+│   ├── crd/bases/                     # Generated CRD YAML
+│   ├── rbac/                          # Controller RBAC
+│   └── manager/                       # Controller Deployment
 ├── charts/
-│   ├── act-runner-controller/         # Refactored Helm chart
-│   └── act-runner-scale-set/          # Refactored Helm chart
-└── Dockerfile                         # Multi-stage with controller target
+│   ├── act-runner-controller/         # Refactored: deploys Go binary
+│   └── act-runner-scale-set/          # Refactored: creates RunnerScaleSet CR
+└── Dockerfile                         # Add controller target stage
 ```
 
----
+### 6.7 Effort Estimate
 
-## 7. Detailed Design: Option C (KEDA-Based)
+| Component | Files | LOC |
+|-----------|-------|-----|
+| CRD types (hand-written) | 3 | ~235 |
+| RunnerScaleSet controller + poller | 2 | 600-800 |
+| EphemeralRunner controller | 1 | 400-500 |
+| Forgejo REST client | 2 | 200 |
+| Resource builder (pod templates) | 1 | 200-300 |
+| Metrics | 1 | 100 |
+| main.go | 1 | 80 |
+| Generated code (deepcopy) | 1 | ~150 |
+| **Total (non-test)** | **~12** | **~2,000-2,500** |
+| Tests (envtest + unit) | 6-8 | 1,500-2,000 |
+| **Total with tests** | **~20** | **~3,500-4,500** |
 
-Offload all scaling logic to KEDA.
+For comparison: ARC is ~8,300 LOC non-test (~14,300 with tests) — our operator is ~3-4x smaller because we don't need a Listener binary, EphemeralRunnerSet, or AutoscalingListener.
 
-### 7.1 Architecture
+### 6.8 Key Simplification vs. ARC
 
-```
-┌──────────────┐    polls    ┌──────────────┐
-│    KEDA       │ ────────→  │   Forgejo     │
-│  (operator)   │            │   REST API    │
-└──────┬───────┘            └──────────────┘
-       │ creates/deletes
-       ▼
-┌──────────────┐
-│  K8s Jobs     │  ← one Job per CI job
-│  (runners)    │
-└──────────────┘
-```
+Since Forgejo uses polling (not push), we avoid ARC's most complex components:
 
-### 7.2 KEDA ScaledJob Manifest
+1. **No separate Listener binary** — The Poller runs as a goroutine inside the RunnerScaleSet controller. No HTTPS long-poll session management, no message queue token refresh, no separate pod/deployment/RBAC.
 
-```yaml
-apiVersion: keda.sh/v1alpha1
-kind: ScaledJob
-metadata:
-  name: forgejo-runner
-spec:
-  jobTargetRef:
-    parallelism: 1
-    completions: 1
-    backoffLimit: 3
-    ttlSecondsAfterFinished: 60
-    template:
-      spec:
-        restartPolicy: Never
-        containers:
-        - name: runner
-          image: ghcr.io/00o-sh/act_runner:latest
-          env:
-          - name: GITEA_INSTANCE_URL
-            value: "https://forgejo.example.com"
-          - name: GITEA_RUNNER_REGISTRATION_TOKEN
-            valueFrom:
-              secretKeyRef:
-                name: runner-token
-                key: token
-          - name: GITEA_RUNNER_EPHEMERAL
-            value: "true"
-  pollingInterval: 10
-  minReplicaCount: 0
-  maxReplicaCount: 20
-  triggers:
-  - type: forgejo-runner
-    metadata:
-      forgejoUrl: "https://forgejo.example.com"
-      token: "<api-token>"
-      labels: "ubuntu-latest"
-```
+2. **No EphemeralRunnerSet layer** — ARC needs this because the Listener is a separate binary that can only patch a replica count. Our controller creates EphemeralRunners directly.
 
-### 7.3 Pros/Cons
+3. **No AutoscalingListener CRD** — No listener pod to manage.
 
-| Aspect | Assessment |
-|--------|-----------|
-| Development effort | Minimal (KEDA does the scaling) |
-| Scale-from-zero | Native KEDA feature |
-| Per-job pods | ScaledJob creates one Job per trigger |
-| Label routing | Supported via `labels` metadata |
-| Dependency | Requires KEDA installed in cluster |
-| Customization | Limited to KEDA's scaling algorithm |
-| Observability | KEDA provides some metrics, less control |
+4. **Simpler API client** — REST calls with `Authorization: token` header vs. GitHub's proprietary Actions Service with session tokens, message queues, and JIT config generation.
 
 ---
 
-## 8. Comparison Matrix
+## 7. Migration Roadmap
 
-| Feature | Option A (Bash++) | Option B (Go Operator) | Option C (KEDA) |
-|---------|-------------------|----------------------|-----------------|
-| Development effort | Low | High | Minimal |
-| Per-job ephemeral pods | Yes (K8s Jobs) | Yes (EphemeralRunner CRD) | Yes (ScaledJob) |
-| Scale-from-zero | Yes | Yes | Yes |
-| Label-based routing | Possible | Full support | Via trigger metadata |
-| CRD status/events | No | Full support | KEDA provides some |
-| Failure retry | K8s Job backoffLimit | Custom (up to 5) | K8s Job backoffLimit |
-| Token isolation | Possible | Full support | Manual |
-| Prometheus metrics | Add-on | Native | Via KEDA |
-| Pod template flexibility | Helm values | CRD spec.template | ScaledJob template |
-| External dependencies | None | controller-runtime | KEDA operator |
-| Maintenance burden | Low | High | Low (KEDA maintained externally) |
-| Testing | Manual/script | envtest + unit tests | Manual |
+### Phase 1: KEDA ScaledJob (Option C) — Now
 
----
+**Goal**: Ephemeral per-job pods with scale-from-zero using minimal custom code.
 
-## 9. Implementation Roadmap
+| Step | Task | Details |
+|------|------|---------|
+| 1.1 | Install KEDA v2.18+ | `helm install keda kedacore/keda -n keda-system` |
+| 1.2 | Add `keda.enabled` toggle to scale-set chart | Conditional: ScaledJob when true, Deployment when false |
+| 1.3 | Create `scaledjob.yaml` template | Embed existing pod template in ScaledJob spec |
+| 1.4 | Create `triggerauth.yaml` template | KEDA TriggerAuthentication referencing Forgejo PAT secret |
+| 1.5 | Add `kedaScalerToken` to values.yaml | Separate from runner registration token |
+| 1.6 | Simplify `run.sh` for ephemeral mode | Always register fresh (no PVC check needed) |
+| 1.7 | Test scale-from-zero | Push code → job queued → KEDA creates Job → runner executes → pod deleted |
+| 1.8 | Test label routing | Multiple ScaledJobs with different labels, verify correct routing |
+| 1.9 | Document KEDA setup | Prerequisites, values, examples |
 
-### Phase 1: Enhanced Bash Controller (Option A) — Immediate
+**Outcome**: Functional ephemeral runner scaling with ~75% ARC parity.
 
-1. **Switch to Kubernetes Jobs for ephemeral runners**
-   - Controller creates `batch/v1 Job` resources instead of scaling Deployments
-   - Each Job runs one ephemeral runner pod
-   - `ttlSecondsAfterFinished: 60` for auto-cleanup
-   - `backoffLimit: 3` for retry on failure
+### Phase 2: Go Operator (Option B) — Later
 
-2. **Add per-label-set job matching**
-   - Read `act-runner/labels` annotation from scale set
-   - Filter pending jobs by matching `runs-on` labels
-   - Scale each set independently
+**Goal**: Full Kubernetes-native control with CRDs, status, events, and no KEDA dependency.
 
-3. **Implement adaptive polling**
-   - 5s interval when pending jobs > 0
-   - 30s interval when idle
-   - Configurable via environment variable
+| Step | Task | Details |
+|------|------|---------|
+| 2.1 | Scaffold with kubebuilder | `kubebuilder init --domain forgejo.org` |
+| 2.2 | Define CRD types | `RunnerScaleSet` and `EphemeralRunner` Go structs |
+| 2.3 | Implement RunnerScaleSet controller | Polling loop + scaling decisions |
+| 2.4 | Implement EphemeralRunner controller | Pod lifecycle + retry logic |
+| 2.5 | Add Forgejo REST client | Reuse patterns from `internal/pkg/client` |
+| 2.6 | Add Prometheus metrics | Pending jobs, active runners, scale events |
+| 2.7 | Add Dockerfile target | New multi-stage build for controller binary |
+| 2.8 | Refactor Helm charts | Controller chart deploys Go binary; scale-set creates CRs |
+| 2.9 | Write envtest tests | Controller reconciliation, pod lifecycle, failure retry |
+| 2.10 | Run alongside KEDA | Migrate scale sets one at a time using different labels |
+| 2.11 | Remove KEDA dependency | Once all scale sets use RunnerScaleSet CRs |
 
-4. **Add structured logging and metrics**
-   - JSON log output
-   - Kubernetes Events on scale actions
-   - Optional Prometheus metrics via a sidecar or embedded endpoint
+**Outcome**: ~95% ARC parity with full Kubernetes-native experience.
 
-### Phase 2: Go Operator (Option B) — Medium Term
+### Phase 3: Advanced Features — Future
 
-5. **Scaffold Go operator with kubebuilder**
-   - Define `RunnerScaleSet` and `EphemeralRunner` CRDs
-   - Implement basic reconciliation loops
-   - Reuse existing ConnectRPC client from `internal/pkg/client`
-
-6. **Implement Poller component**
-   - Per-RunnerScaleSet polling goroutine
-   - Job filtering by label
-   - Desired replica calculation
-
-7. **Implement EphemeralRunner lifecycle**
-   - Pod creation with registration token
-   - Completion monitoring
-   - Failure retry (up to 5 attempts)
-   - Cleanup on completion
-
-8. **Update Helm charts**
-   - Controller chart deploys Go binary instead of bash script
-   - Scale set chart creates RunnerScaleSet CRD instead of Deployment/StatefulSet
-   - Backward compatibility via chart version
-
-### Phase 3: Advanced Features — Long Term
-
-9. **ConnectRPC-based polling** (if Forgejo adds server-push support)
-   - Use `FetchTask` RPC with long timeout instead of REST API polling
-   - Or implement a custom long-poll endpoint in Forgejo
-
-10. **JIT token generation**
-    - Requires Forgejo server-side changes
-    - API to generate single-use, scoped registration tokens
-    - Controller generates token per EphemeralRunner, never passes main token to pods
-
-11. **Multi-cluster support**
-    - Controller federation across clusters
-    - Shared job queue with cluster-aware scheduling
-
-12. **Webhook-driven scaling** (if Forgejo adds `workflow_job.queued` event)
-    - Controller exposes webhook endpoint
-    - Forgejo pushes job events
-    - Eliminates polling entirely
+| Step | Task | Depends On |
+|------|------|-----------|
+| 3.1 | Per-pod registration tokens | Forgejo API for generating tokens programmatically |
+| 3.2 | ConnectRPC-based polling | Use `FetchTask` with `tasksVersion` instead of REST |
+| 3.3 | Webhook-driven scaling | Forgejo adding `workflow_job.queued` webhook event |
+| 3.4 | Multi-cluster federation | Shared job queue with cluster-aware scheduling |
+| 3.5 | Warm pool (min idle runners) | Keep N registered-but-idle runners for instant pickup |
 
 ---
 
-## 10. Quick Start: Achieving ARC-Equivalent Today
+## 8. Forgejo Server-Side Improvements (Upstream Proposals)
 
-With the current repo, you can get 80% of ARC's functionality:
+To close remaining gaps with ARC, these Forgejo changes would help:
 
-```bash
-# 1. Install the controller (watches for pending jobs)
-helm install controller charts/act-runner-controller \
-  --namespace act-system --create-namespace \
-  --set forgejo.url=https://forgejo.example.com \
-  --set forgejo.apiToken=$FORGEJO_ADMIN_TOKEN \
-  --set reconcileInterval=10 \
-  --set scaleDownDelay=120
-
-# 2. Install a runner scale set (ephemeral runners)
-helm install ubuntu-runners charts/act-runner-scale-set \
-  --namespace act-runners --create-namespace \
-  --set giteaConfigUrl=https://forgejo.example.com \
-  --set giteaConfigSecret.token=$RUNNER_REG_TOKEN \
-  --set runnerLabels="ubuntu-latest:docker://node:20" \
-  --set ephemeral=true \
-  --set minRunners=0 \
-  --set maxRunners=20 \
-  --set replicas=0
-
-# 3. Push code → workflow triggers → controller detects pending job →
-#    scales up runner → runner executes job → runner exits →
-#    controller scales back down
-```
-
-**What you get**:
-- Scale from 0 to N runners based on demand
-- Runners exit after each job (ephemeral mode)
-- Automatic scale-down after cooldown period
-- Multiple scale sets with different labels/configurations
-
-**What you don't get (yet)**:
-- True per-job pod isolation (pods are recycled within the StatefulSet)
-- Per-label job routing (all pending jobs counted globally)
-- Push-based notifications (polling only)
-- CRD-based management with status tracking
+| Feature | Priority | Effort | Impact | Needed For |
+|---------|----------|--------|--------|-----------|
+| `workflow_job.queued` webhook event | High | Medium | Eliminates polling entirely | Phase 3.3 |
+| JIT runner registration tokens | Medium | High | Per-pod token isolation | Phase 3.1 |
+| Job listing with `runs-on` in response | High | Low | Better label routing without extra API calls | Phase 1 (nice-to-have) |
+| Long-poll endpoint for job availability | Medium | Medium | Near-instant scaling (replaces polling) | Phase 3.3 alternative |
+| Runner assignment API | Low | High | Precise job-to-runner routing | Phase 3 |
 
 ---
 
-## 11. Forgejo Server-Side Improvements (Upstream Proposals)
+## 9. Summary
 
-To achieve full ARC parity, these Forgejo server-side features would help:
+| Phase | Approach | Effort | ARC Parity | Key Wins |
+|-------|----------|--------|------------|----------|
+| **Now** | KEDA ScaledJob (Option C) | Minimal | ~75% | Per-job pods, scale-from-zero, label routing, no custom controller |
+| **Later** | Go Operator (Option B) | ~2,000-2,500 LOC | ~95% | CRD status, Events, custom retry, no KEDA dependency |
+| **Future** | Advanced features | Depends on Forgejo | ~100% | Push-based scaling, JIT tokens, multi-cluster |
 
-| Feature | Priority | Effort | Impact |
-|---------|----------|--------|--------|
-| `workflow_job.queued` webhook event | High | Medium | Enables push-based scaling, eliminates polling |
-| JIT runner registration tokens | Medium | High | Per-pod token isolation, no shared secrets in runner pods |
-| Job listing with `runs-on` in response | High | Low | Enables per-label scaling without extra API calls |
-| Long-poll endpoint for job availability | Medium | Medium | Reduces polling overhead, near-instant scale-up |
-| Runner assignment API (assign job X to runner Y) | Low | High | Precise job-to-runner routing |
-
-These could be proposed as Forgejo enhancement issues on Codeberg.
-
----
-
-## 12. Summary
-
-| Approach | When to Use | Effort | ARC Parity |
-|----------|-------------|--------|------------|
-| **Current repo as-is** | Quick start, small teams | Zero | ~60% |
-| **Option A: Enhanced Bash** | Production use, moderate scale | Low | ~80% |
-| **Option B: Go Operator** | Large scale, enterprise needs | High | ~95% |
-| **Option C: KEDA** | Minimal custom code, KEDA already in cluster | Minimal | ~75% |
-
-The path from here to full ARC-equivalent functionality is incremental. The existing controller + scale set charts provide a solid foundation. The main architectural decision is whether to invest in a Go operator (Option B) or stay with the pragmatic bash + KEDA approach.
+The KEDA phase validates the ephemeral-pod model with real workloads. The Go operator phase replaces KEDA with a purpose-built controller when you need deeper control. The migration is seamless because both use the same pod templates and runner images — only the scaling orchestration changes.
