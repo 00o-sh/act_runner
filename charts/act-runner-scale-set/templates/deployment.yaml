@@ -13,10 +13,16 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "act-runner-scale-set.labels" . | nindent 4 }}
-  {{- with .Values.additionalAnnotations }}
+    app.kubernetes.io/managed-by: act-runner-controller
   annotations:
+    act-runner/min-runners: {{ .Values.minRunners | default 1 | quote }}
+    act-runner/max-runners: {{ .Values.maxRunners | default 10 | quote }}
+    {{- if .Values.runnerLabels }}
+    act-runner/labels: {{ .Values.runnerLabels | quote }}
+    {{- end }}
+    {{- with .Values.additionalAnnotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicas }}

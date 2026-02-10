@@ -1,7 +1,9 @@
 # act-runner-controller values
-# This chart installs shared infrastructure for act_runner scale sets.
+# Job-aware autoscaler for act_runner scale sets.
+# Polls the Forgejo/Gitea REST API for pending jobs and scales
+# runner Deployments/StatefulSets up or down accordingly.
 
-# -- Number of controller replicas (for leader election, use > 1)
+# -- Number of controller replicas
 replicaCount: 1
 
 image:
@@ -9,7 +11,7 @@ image:
   repository: ghcr.io/00o-sh/act_runner
   # -- Image pull policy
   pullPolicy: IfNotPresent
-  # -- Image tag override (defaults to chart appVersion)
+  # -- Image tag override (defaults to appVersion-controller)
   tag: ""
 
 # -- Image pull secrets for private registries
@@ -19,6 +21,31 @@ imagePullSecrets: []
 nameOverride: ""
 # -- Override the full release name
 fullnameOverride: ""
+
+# Forgejo / Gitea instance configuration
+forgejo:
+  # -- (required) Forgejo instance URL (e.g. https://forgejo.example.com)
+  url: ""
+  # -- API token with admin or org-level permissions to read runners and jobs.
+  # If set (and apiTokenSecret.name is empty), the chart creates a Secret for you.
+  apiToken: ""
+  # -- Reference a pre-existing Secret instead of having the chart create one.
+  apiTokenSecret:
+    # -- Name of the pre-existing Secret
+    name: ""
+    # -- Key inside the Secret that holds the API token
+    key: "token"
+  # -- API scope: "admin" uses /api/v1/admin/actions/* endpoints,
+  # "org" uses /api/v1/orgs/{org}/actions/* endpoints.
+  scope: "admin"
+  # -- Forgejo organization name (only used when scope=org)
+  org: ""
+
+# -- How often (seconds) the controller reconciles runner replicas
+reconcileInterval: 30
+
+# -- How long (seconds) runners must be idle before scaling down
+scaleDownDelay: 300
 
 serviceAccount:
   # -- Create a service account for the controller
@@ -62,12 +89,6 @@ affinity: {}
 
 # -- Priority class for controller pods
 priorityClassName: ""
-
-# -- Log level: debug, info, warn, error
-logLevel: info
-
-# -- Log format: text, json
-logFormat: text
 
 # RBAC configuration
 rbac:

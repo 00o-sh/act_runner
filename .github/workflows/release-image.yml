@@ -25,6 +25,8 @@ jobs:
             tag_suffix: "-dind"
           - target: dind-rootless
             tag_suffix: "-dind-rootless"
+          - target: controller
+            tag_suffix: "-controller"
 
     steps:
       - name: Checkout
