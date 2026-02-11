@@ -204,3 +204,49 @@ helm install socket-runners \
 ```
 
 See each chart's [README](charts/) for full values documentation.
+
+### Flux CD / GitOps deployment
+
+For teams using [Flux CD](https://fluxcd.io/) to manage their Kubernetes clusters, both charts are available as OCI artifacts and can be deployed declaratively using `OCIRepository` and `HelmRelease` resources. This eliminates the need for manual `helm install` commands — Flux reconciles chart versions and values from Git automatically.
+
+```yaml
+# Pull the chart from OCI
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: act-runner-scale-set
+  namespace: forgejo-runner-system
+spec:
+  interval: 15m
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: 0.2.24
+  url: oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set
+---
+# Deploy via HelmRelease
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: forgejo-runner
+  namespace: forgejo-runner-system
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: act-runner-scale-set
+  interval: 1h
+  values:
+    giteaConfigUrl: https://forgejo.example.com
+    giteaConfigSecret:
+      name: forgejo-runner-secret
+    ephemeral: true
+    containerMode:
+      type: dind
+    keda:
+      enabled: true
+      triggerAuthenticationRef: forgejo-runner-controller-trigger-auth
+      metricsUrl: "https://forgejo.example.com/api/v1/admin/runners/jobs?status=waiting&limit=1"
+```
+
+A complete, production-ready Flux CD example with both charts, Kustomize, and External Secrets templates is available in [`examples/kubernetes/flux-cd/`](examples/kubernetes/flux-cd/).

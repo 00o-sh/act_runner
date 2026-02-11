@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &name forgejo-runner
+  namespace: forgejo-runner-system
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: act-runner-scale-set
+  interval: 1h
+  values:
+    giteaConfigUrl: https://forgejo.example.com   # Replace with your Forgejo instance URL
+    giteaConfigSecret:
+      name: forgejo-runner-secret                  # References the Secret created below
+    minRunners: 1
+    maxRunners: 3
+    ephemeral: true
+    containerMode:
+      type: dind
+    persistence:
+      enabled: true
+      storageClass: ""                             # Replace with your storage class (e.g. openebs-hostpath)
+      size: 25Gi
+    keda:
+      enabled: true
+      triggerAuthenticationRef: forgejo-runner-controller-trigger-auth
+      metricsUrl: "https://forgejo.example.com/api/v1/admin/runners/jobs?status=waiting&limit=1"
+      pollingInterval: 30
+      cooldownPeriod: 300
+      scaledJob:
+        ttlSecondsAfterFinished: 300
+        successfulJobsHistoryLimit: 5
+        failedJobsHistoryLimit: 5

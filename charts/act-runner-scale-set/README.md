@@ -269,6 +269,60 @@ helm install my-runners \
   --set giteaConfigSecret.name=my-runner-token
 ```
 
+## Flux CD / GitOps
+
+If you manage your cluster with [Flux CD](https://fluxcd.io/), deploy this chart using `OCIRepository` + `HelmRelease` instead of `helm install`:
+
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: act-runner-scale-set
+  namespace: forgejo-runner-system
+spec:
+  interval: 15m
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: 0.2.24
+  url: oci://ghcr.io/00o-sh/act_runner/charts/act-runner-scale-set
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: forgejo-runner
+  namespace: forgejo-runner-system
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: act-runner-scale-set
+  interval: 1h
+  values:
+    giteaConfigUrl: https://forgejo.example.com
+    giteaConfigSecret:
+      name: forgejo-runner-secret
+    minRunners: 1
+    maxRunners: 3
+    ephemeral: true
+    containerMode:
+      type: dind
+    persistence:
+      enabled: true
+      storageClass: ""
+      size: 25Gi
+    keda:
+      enabled: true
+      triggerAuthenticationRef: forgejo-runner-controller-trigger-auth
+      metricsUrl: "https://forgejo.example.com/api/v1/admin/runners/jobs?status=waiting&limit=1"
+      pollingInterval: 30
+      cooldownPeriod: 300
+```
+
+To upgrade chart versions, update `spec.ref.tag` in the `OCIRepository` — Flux reconciles automatically.
+
+For a complete Flux CD example with Kustomize and External Secrets, see [`examples/kubernetes/flux-cd/`](../../examples/kubernetes/flux-cd/).
+
 ## Upgrading
 
 ```bash

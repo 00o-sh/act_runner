@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &name forgejo-runner-controller
+  namespace: forgejo-runner-system
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: act-runner-controller
+  interval: 1h
+  values:
+    fullnameOverride: *name
+    forgejo:
+      url: https://forgejo.example.com           # Replace with your Forgejo instance URL
+      apiTokenSecret:
+        name: forgejo-runner-controller-secret     # References the Secret created below
+        key: token
+      scope: admin
