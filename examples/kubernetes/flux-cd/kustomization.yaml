@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://json.schemastore.org/kustomization
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: forgejo-runner-system
+resources:
+  - ./namespace.yaml
+  # Controller (KEDA TriggerAuthentication + API token Secret)
+  - ./controller-secret.yaml
+  - ./controller-ocirepository.yaml
+  - ./controller-helmrelease.yaml
+  # Runner scale set (runner pods + KEDA ScaledJob/ScaledObject)
+  - ./runner-secret.yaml
+  - ./runner-ocirepository.yaml
+  - ./runner-helmrelease.yaml

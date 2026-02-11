@@ -1,0 +1,24 @@
+# Optional: Flux CD Kustomization resource
+# Apply this if you manage your cluster with Flux CD and want Flux to reconcile
+# the manifests in this directory from your Git repository.
+#
+# Adjust the spec.path to match where you store these files in your repo.
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/kustomize.toolkit.fluxcd.io/kustomization_v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: forgejo-runner-controller
+  namespace: flux-system
+spec:
+  interval: 1h
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./kubernetes/apps/forgejo-runner-system    # Adjust to your repo layout
+  prune: true
+  wait: true
+  dependsOn:
+    - name: keda                                   # Ensure KEDA is deployed first
+    # - name: external-secrets                     # Uncomment if using ExternalSecrets
